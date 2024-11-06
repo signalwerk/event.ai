@@ -1,170 +1,299 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>Event to ICS Converter</title>
-</head>
-<body>
+  </head>
+  <body>
     <h1>Event to ICS Converter</h1>
+
+    <!-- API Key Input -->
     <label for="apiKey">API Key:</label>
-    <input type="password" id="apiKey" placeholder="Enter your OpenAI API Key"><br><br>
+    <input
+      type="password"
+      id="apiKey"
+      placeholder="Enter your OpenAI API Key"
+    /><br /><br />
 
-    <label for="eventText">Event Text:</label><br>
-    <textarea id="eventText" rows="10" cols="50" placeholder="Enter event details here..."></textarea><br><br>
+    <!-- Model Selection Dropdown -->
+    <label for="modelSelect">Select Model:</label>
+    <select id="modelSelect">
+      <option value="gpt-4o-mini">gpt-4o-mini</option>
+      <option value="gpt-4o">gpt-4o</option></select
+    ><br /><br />
 
-    <button id="convertButton">Convert to ICS</button><br><br>
+    <!-- Pre-processing Option -->
+    <input type="checkbox" id="preprocessCheckbox" />
+    <label for="preprocessCheckbox">Enable Pre-processing</label><br /><br />
 
+    <!-- Event Text Input -->
+    <label for="eventText">Event Text:</label><br />
+    <textarea
+      id="eventText"
+      rows="10"
+      cols="50"
+      placeholder="Enter event details here..."
+    ></textarea
+    ><br /><br />
+
+    <!-- Convert Button -->
+    <button id="convertButton">Convert to ICS</button><br /><br />
+
+    <!-- Preview Area -->
     <div id="preview"></div>
 
-    <a id="downloadLink" href="#" download="event.ics" style="display:none;">Download ICS File</a>
+    <!-- Download Link -->
+    <a id="downloadLink" href="#" download="event.ics" style="display: none"
+      >Download ICS File</a
+    >
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const apiKeyInput = document.getElementById('apiKey');
-            const eventTextInput = document.getElementById('eventText');
-            const convertButton = document.getElementById('convertButton');
-            const previewDiv = document.getElementById('preview');
-            const downloadLink = document.getElementById('downloadLink');
+      document.addEventListener("DOMContentLoaded", function () {
+        const apiKeyInput = document.getElementById("apiKey");
+        const eventTextInput = document.getElementById("eventText");
+        const convertButton = document.getElementById("convertButton");
+        const previewDiv = document.getElementById("preview");
+        const downloadLink = document.getElementById("downloadLink");
+        const modelSelect = document.getElementById("modelSelect");
+        const preprocessCheckbox =
+          document.getElementById("preprocessCheckbox");
 
-            // Load API key from localStorage
-            if (localStorage.getItem('openai_api_key')) {
-                apiKeyInput.value = localStorage.getItem('openai_api_key');
+        // Load API key and model selection from localStorage
+        if (localStorage.getItem("openai_api_key")) {
+          apiKeyInput.value = localStorage.getItem("openai_api_key");
+        }
+        if (localStorage.getItem("selected_model")) {
+          modelSelect.value = localStorage.getItem("selected_model");
+        }
+        if (localStorage.getItem("preprocess_enabled") === "true") {
+          preprocessCheckbox.checked = true;
+        }
+
+        convertButton.addEventListener("click", async function () {
+          const apiKey = apiKeyInput.value.trim();
+          let eventText = eventTextInput.value.trim();
+          const selectedModel = modelSelect.value;
+          const preprocessEnabled = preprocessCheckbox.checked;
+
+          if (!apiKey || !eventText) {
+            alert("Please enter both API Key and Event Text.");
+            return;
+          }
+
+          // Store API key and model selection in localStorage
+          localStorage.setItem("openai_api_key", apiKey);
+          localStorage.setItem("selected_model", selectedModel);
+          localStorage.setItem("preprocess_enabled", preprocessEnabled);
+
+          // Pre-processing Step
+          if (preprocessEnabled) {
+            try {
+              const preprocessResponse = await fetch(
+                "https://api.openai.com/v1/chat/completions",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: "Bearer " + apiKey,
+                  },
+                  body: JSON.stringify({
+                    model: selectedModel,
+                    messages: [
+                      {
+                        role: "system",
+                        content:
+                          "You are an assistant that extracts important information from text about events, and removes any clutter or irrelevant details that might come from copy-paste artifacts.",
+                      },
+                      { role: "user", content: eventText },
+                    ],
+                  }),
+                },
+              );
+
+              if (!preprocessResponse.ok) {
+                throw new Error(
+                  `HTTP error! status: ${preprocessResponse.status}`,
+                );
+              }
+
+              const preprocessData = await preprocessResponse.json();
+              const preprocessMessage =
+                preprocessData.choices[0].message.content.trim();
+
+              // Use the cleaned text for the next step
+              eventText = preprocessMessage;
+            } catch (error) {
+              console.error("Pre-processing Error:", error);
+              alert("An error occurred during pre-processing.");
+              return;
             }
+          }
 
-            convertButton.addEventListener('click', async function() {
-                const apiKey = apiKeyInput.value.trim();
-                const eventText = eventTextInput.value.trim();
-
-                if (!apiKey || !eventText) {
-                    alert('Please enter both API Key and Event Text.');
-                    return;
-                }
-
-                // Store API key in localStorage (Note: Storing API keys in localStorage is not secure)
-                localStorage.setItem('openai_api_key', apiKey);
-
-                // Call OpenAI API with function calling
-                try {
-                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ' + apiKey
+          // Call OpenAI API with function calling
+          try {
+            const response = await fetch(
+              "https://api.openai.com/v1/chat/completions",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: "Bearer " + apiKey,
+                },
+                body: JSON.stringify({
+                  model: selectedModel,
+                  messages: [
+                    {
+                      role: "system",
+                      content:
+                        "You are an assistant that extracts event information from text. That is most of the time copy & paste from sources that have unstructured data.",
+                    },
+                    { role: "user", content: eventText },
+                  ],
+                  functions: [
+                    {
+                      name: "extract_event_info",
+                      description:
+                        "Extracts event information from text and returns it as structured data. Provide only data if the information is present in the text.",
+                      parameters: {
+                        type: "object",
+                        properties: {
+                          title: {
+                            type: "string",
+                            description: "Title of the event. Never include Event in the title. It is redundant. Also the title should be short and descriptive. No need to include the date or time or location in the title.",
+                          },
+                          start: {
+                            type: "string",
+                            description:
+                              "Event start date and time in YYYYMMDDTHHMMSSZ format",
+                          },
+                          end: {
+                            type: "string",
+                            description:
+                              "Event end date and time in YYYYMMDDTHHMMSSZ format",
+                          },
+                          place: {
+                            type: "string",
+                            description:
+                              "Location of the event. Name of the location and address.",
+                          },
+                          url: {
+                            type: "string",
+                            description: "URL of the event or the location.",
+                          },
+                          notes: {
+                            type: "string",
+                            description: "Additional notes about the event or additoinal informations and details. Additional URLs, contact information, etc.",
+                          },
                         },
-                        body: JSON.stringify({
-                            model: 'gpt-4o-mini', 
-                            messages: [
-                                { "role": "system", "content": "You are an assistant that extracts event information from text. That is most of the time copy & past from sources that have unstructured data." },
-                                { "role": "user", "content": eventText }
-                            ],
-                            functions: [
-                                {
-                                    "name": "extract_event_info",
-                                    "description": "Extracts event information from text and returns it as structured data. Provide only data if the information is present in the text.",
-                                    "parameters": {
-                                        "type": "object",
-                                        "properties": {
-                                            "title": { "type": "string", "description": "Title of the event" },
-                                            "start": { "type": "string", "description": "Event start date and time in YYYYMMDDTHHMMSSZ format" },
-                                            "end": { "type": "string", "description": "Event end date and time in YYYYMMDDTHHMMSSZ format" },
-                                            "place": { "type": "string", "description": "Location of the event. Name of the location and address." },
-                                            "url": { "type": "string", "description": "URL of the event." },
-                                            "notes": { "type": "string", "description": "Additional notes about the event" }
-                                        },
-                                        "required": ["title", "start", "end"]
-                                    }
-                                }
-                            ],
-                            function_call: { "name": "extract_event_info" },
-                            temperature: 0,
-                            max_tokens: 500
-                        })
-                    });
+                        required: ["title", "start", "end"],
+                      },
+                    },
+                  ],
+                  function_call: { name: "extract_event_info" },
+                }),
+              },
+            );
 
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
-                    const data = await response.json();
-
-                    const message = data.choices[0].message;
-
-                    let eventData;
-
-                    if (message.function_call && message.function_call.arguments) {
-                        // The assistant called the function
-                        const functionArgs = JSON.parse(message.function_call.arguments);
-                        eventData = functionArgs;
-
-                        // Display the structured data in the preview area
-                        previewDiv.innerHTML = '<h2>Event Data</h2><pre>' + JSON.stringify(eventData, null, 2) + '</pre>';
-
-                        // Create ICS file
-                        const icsContent = generateICS(eventData);
-
-                        // Create a Blob and URL for the ICS file
-                        const blob = new Blob([icsContent], { type: 'text/calendar' });
-                        const url = URL.createObjectURL(blob);
-
-                        // Set up the download link
-                        downloadLink.href = url;
-                        downloadLink.style.display = 'inline';
-                    } else {
-                        alert('Failed to extract event information.');
-                        console.error('Assistant message:', message);
-                        return;
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('An error occurred while processing the request.');
-                }
-            });
-
-            function generateICS(eventData) {
-                const lines = [];
-                lines.push('BEGIN:VCALENDAR');
-                lines.push('VERSION:2.0');
-                lines.push('PRODID:-//Your Organization//Event to ICS Converter//EN');
-                lines.push('BEGIN:VEVENT');
-                lines.push('UID:' + generateUID());
-                lines.push('DTSTAMP:' + formatDateTime(new Date()));
-                if (eventData.start) {
-                    lines.push('DTSTART:' + eventData.start);
-                }
-                if (eventData.end) {
-                    lines.push('DTEND:' + eventData.end);
-                }
-                if (eventData.title) {
-                    lines.push('SUMMARY:' + eventData.title);
-                }
-                if (eventData.place) {
-                    lines.push('LOCATION:' + eventData.place);
-                }
-                if (eventData.url) {
-                    lines.push('URL:' + eventData.url);
-                }
-                if (eventData.notes) {
-                    lines.push('DESCRIPTION:' + eventData.notes);
-                }
-                lines.push('END:VEVENT');
-                lines.push('END:VCALENDAR');
-                return lines.join('\r\n');
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            function generateUID() {
-                return 'uid' + Date.now() + '@example.com';
-            }
+            const data = await response.json();
 
-            function formatDateTime(date) {
-                // Returns date in YYYYMMDDTHHMMSSZ format
-                const pad = (n) => n < 10 ? '0' + n : n;
-                return date.getUTCFullYear().toString() +
-                    pad(date.getUTCMonth() + 1) +
-                    pad(date.getUTCDate()) + 'T' +
-                    pad(date.getUTCHours()) +
-                    pad(date.getUTCMinutes()) +
-                    pad(date.getUTCSeconds()) + 'Z';
+            const message = data.choices[0].message;
+
+            let eventData;
+
+            if (message.function_call && message.function_call.arguments) {
+              // The assistant called the function
+              const functionArgs = JSON.parse(message.function_call.arguments);
+              eventData = functionArgs;
+
+              // Display the structured data in the preview area
+              previewDiv.innerHTML =
+                "<h2>Event Data</h2><pre>" +
+                JSON.stringify(eventData, null, 2) +
+                "</pre>";
+
+              // Create ICS file
+              const icsContent = generateICS(eventData);
+
+              // Create a Blob and URL for the ICS file
+              const blob = new Blob([icsContent], { type: "text/calendar" });
+              const url = URL.createObjectURL(blob);
+
+              // Set up the download link
+              downloadLink.href = url;
+              downloadLink.style.display = "inline";
+            } else {
+              alert("Failed to extract event information.");
+              console.error("Assistant message:", message);
+              return;
             }
+          } catch (error) {
+            console.error("Error:", error);
+            alert("An error occurred while processing the request.");
+          }
         });
+
+        function generateICS(eventData) {
+          const lines = [];
+          lines.push("BEGIN:VCALENDAR");
+          lines.push("VERSION:2.0");
+          lines.push("PRODID:-//Your Organization//Event to ICS Converter//EN");
+          lines.push("BEGIN:VEVENT");
+          lines.push("UID:" + generateUID());
+          lines.push("DTSTAMP:" + formatDateTime(new Date()));
+          if (eventData.start) {
+            lines.push("DTSTART:" + eventData.start);
+          }
+          if (eventData.end) {
+            lines.push("DTEND:" + eventData.end);
+          }
+          if (eventData.title) {
+            lines.push("SUMMARY:" + escapeICSText(eventData.title));
+          }
+          if (eventData.place) {
+            lines.push("LOCATION:" + escapeICSText(eventData.place));
+          }
+          if (eventData.url) {
+            lines.push("URL:" + escapeICSText(eventData.url));
+          }
+          if (eventData.notes) {
+            lines.push("DESCRIPTION:" + escapeICSText(eventData.notes));
+          }
+          lines.push("END:VEVENT");
+          lines.push("END:VCALENDAR");
+          return lines.join("\r\n");
+        }
+
+        function generateUID() {
+          return "uid" + Date.now() + "@example.com";
+        }
+
+        function formatDateTime(date) {
+          // Returns date in YYYYMMDDTHHMMSSZ format
+          const pad = (n) => (n < 10 ? "0" + n : n);
+          return (
+            date.getUTCFullYear().toString() +
+            pad(date.getUTCMonth() + 1) +
+            pad(date.getUTCDate()) +
+            "T" +
+            pad(date.getUTCHours()) +
+            pad(date.getUTCMinutes()) +
+            pad(date.getUTCSeconds()) +
+            "Z"
+          );
+        }
+
+        function escapeICSText(text) {
+          // Escape special characters for ICS format
+          return text
+            .replace(/\\/g, "\\\\")
+            .replace(/;/g, "\\;")
+            .replace(/,/g, "\\,")
+            .replace(/\n/g, "\\n");
+        }
+      });
     </script>
-</body>
+  </body>
 </html>
