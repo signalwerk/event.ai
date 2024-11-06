@@ -251,78 +251,133 @@
               .map((eventData) => eventData[field])
               .filter((value) => value !== undefined);
 
+            // Sanitize date fields
+            if (field === "start" || field === "end") {
+              for (let i = 0; i < values.length; i++) {
+                values[i] = sanitizeDate(values[i]);
+              }
+            }
+
             // Get unique values
             const uniqueValues = [...new Set(values)];
 
-            // If all values are the same, just display the value
-            if (uniqueValues.length === 1) {
-              const fieldDiv = document.createElement("div");
-              fieldDiv.style.marginBottom = "10px";
+            if (field === "notes") {
+              // For notes, use checkboxes to allow multiple selections
+              if (uniqueValues.length > 0) {
+                const fieldDiv = document.createElement("div");
+                fieldDiv.style.marginBottom = "10px";
 
-              const label = document.createElement("label");
-              label.textContent =
-                field.charAt(0).toUpperCase() + field.slice(1) + ": ";
-              fieldDiv.appendChild(label);
+                const label = document.createElement("label");
+                label.textContent =
+                  field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+                fieldDiv.appendChild(label);
 
-              const span = document.createElement("span");
-              span.textContent = uniqueValues[0];
-              fieldDiv.appendChild(span);
+                uniqueValues.forEach((optionValue) => {
+                  const optionDiv = document.createElement("div");
 
-              // Hidden input to store the value
-              const hiddenInput = document.createElement("input");
-              hiddenInput.type = "hidden";
-              hiddenInput.name = field;
-              hiddenInput.value = uniqueValues[0];
-              fieldDiv.appendChild(hiddenInput);
+                  const checkbox = document.createElement("input");
+                  checkbox.type = "checkbox";
+                  checkbox.name = field;
+                  checkbox.value = optionValue;
 
-              form.appendChild(fieldDiv);
-            } else if (uniqueValues.length > 1) {
-              // Create option fields for the options
-              const fieldDiv = document.createElement("div");
-              fieldDiv.style.marginBottom = "10px";
+                  const checkboxLabel = document.createElement("label");
+                  checkboxLabel.textContent = optionValue;
 
-              const label = document.createElement("label");
-              label.textContent =
-                field.charAt(0).toUpperCase() + field.slice(1) + ": ";
-              fieldDiv.appendChild(label);
+                  optionDiv.appendChild(checkbox);
+                  optionDiv.appendChild(checkboxLabel);
+                  fieldDiv.appendChild(optionDiv);
+                });
 
-              uniqueValues.forEach((optionValue, index) => {
-                const optionDiv = document.createElement("div");
+                form.appendChild(fieldDiv);
+              } else {
+                // No values extracted for this field
+                const fieldDiv = document.createElement("div");
+                fieldDiv.style.marginBottom = "10px";
 
-                const radio = document.createElement("input");
-                radio.type = "radio";
-                radio.name = field;
-                radio.value = optionValue;
-                if (index === 0) {
-                  radio.checked = true; // default to first option
-                }
+                const label = document.createElement("label");
+                label.textContent =
+                  field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+                fieldDiv.appendChild(label);
 
-                const radioLabel = document.createElement("label");
-                radioLabel.textContent = optionValue;
+                const input = document.createElement("input");
+                input.type = "text";
+                input.name = field;
+                input.placeholder = "(No value)";
+                fieldDiv.appendChild(input);
 
-                optionDiv.appendChild(radio);
-                optionDiv.appendChild(radioLabel);
-                fieldDiv.appendChild(optionDiv);
-              });
-
-              form.appendChild(fieldDiv);
+                form.appendChild(fieldDiv);
+              }
             } else {
-              // No values extracted for this field
-              const fieldDiv = document.createElement("div");
-              fieldDiv.style.marginBottom = "10px";
+              // For other fields
+              if (uniqueValues.length === 1) {
+                const fieldDiv = document.createElement("div");
+                fieldDiv.style.marginBottom = "10px";
 
-              const label = document.createElement("label");
-              label.textContent =
-                field.charAt(0).toUpperCase() + field.slice(1) + ": ";
-              fieldDiv.appendChild(label);
+                const label = document.createElement("label");
+                label.textContent =
+                  field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+                fieldDiv.appendChild(label);
 
-              const input = document.createElement("input");
-              input.type = "text";
-              input.name = field;
-              input.placeholder = "(No value)";
-              fieldDiv.appendChild(input);
+                const span = document.createElement("span");
+                span.textContent = uniqueValues[0];
+                fieldDiv.appendChild(span);
 
-              form.appendChild(fieldDiv);
+                // Hidden input to store the value
+                const hiddenInput = document.createElement("input");
+                hiddenInput.type = "hidden";
+                hiddenInput.name = field;
+                hiddenInput.value = uniqueValues[0];
+                fieldDiv.appendChild(hiddenInput);
+
+                form.appendChild(fieldDiv);
+              } else if (uniqueValues.length > 1) {
+                // Create option fields for the options
+                const fieldDiv = document.createElement("div");
+                fieldDiv.style.marginBottom = "10px";
+
+                const label = document.createElement("label");
+                label.textContent =
+                  field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+                fieldDiv.appendChild(label);
+
+                uniqueValues.forEach((optionValue, index) => {
+                  const optionDiv = document.createElement("div");
+
+                  const radio = document.createElement("input");
+                  radio.type = "radio";
+                  radio.name = field;
+                  radio.value = optionValue;
+                  if (index === 0) {
+                    radio.checked = true; // default to first option
+                  }
+
+                  const radioLabel = document.createElement("label");
+                  radioLabel.textContent = optionValue;
+
+                  optionDiv.appendChild(radio);
+                  optionDiv.appendChild(radioLabel);
+                  fieldDiv.appendChild(optionDiv);
+                });
+
+                form.appendChild(fieldDiv);
+              } else {
+                // No values extracted for this field
+                const fieldDiv = document.createElement("div");
+                fieldDiv.style.marginBottom = "10px";
+
+                const label = document.createElement("label");
+                label.textContent =
+                  field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+                fieldDiv.appendChild(label);
+
+                const input = document.createElement("input");
+                input.type = "text";
+                input.name = field;
+                input.placeholder = "(No value)";
+                fieldDiv.appendChild(input);
+
+                form.appendChild(fieldDiv);
+              }
             }
           });
 
@@ -333,9 +388,21 @@
           generateButton.addEventListener("click", function () {
             const formData = new FormData(form);
             const selectedEventData = {};
-            for (const [key, value] of formData.entries()) {
-              selectedEventData[key] = value;
-            }
+
+            // For notes, collect all selected checkboxes
+            const notesCheckboxes = form.querySelectorAll(
+              'input[name="notes"]:checked',
+            );
+            const notesValues = Array.from(notesCheckboxes).map(
+              (checkbox) => checkbox.value,
+            );
+            selectedEventData["notes"] = notesValues.join("\\n"); // Join notes with newline
+
+            // Collect other fields
+            ["title", "start", "end", "place", "url"].forEach((field) => {
+              selectedEventData[field] = formData.get(field) || "";
+            });
+
             // Generate ICS file with selected data
             const icsContent = generateICS(selectedEventData);
 
@@ -350,6 +417,28 @@
 
           form.appendChild(generateButton);
           previewDiv.appendChild(form);
+        }
+
+        function sanitizeDate(dateStr) {
+          // Remove any non-digit characters
+          let sanitized = dateStr.replace(/\D/g, "");
+
+          // Ensure the string is 14 characters long (YYYYMMDDHHMMSS)
+          if (sanitized.length === 8) {
+            // Date only, add default time 000000
+            sanitized += "000000";
+          } else if (sanitized.length === 12) {
+            // Missing seconds, add '00'
+            sanitized += "00";
+          } else if (sanitized.length > 14) {
+            // Truncate to 14 characters
+            sanitized = sanitized.substring(0, 14);
+          } else if (sanitized.length < 14) {
+            // Pad with zeros at the end
+            sanitized = sanitized.padEnd(14, "0");
+          }
+
+          return sanitized;
         }
 
         function generateICS(eventData) {
