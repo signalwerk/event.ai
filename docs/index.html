@@ -68,6 +68,8 @@
           preprocessCheckbox.checked = true;
         }
 
+        let eventDataArray = []; // Array to store results from 3 runs
+
         convertButton.addEventListener("click", async function () {
           const apiKey = apiKeyInput.value.trim();
           let eventText = eventTextInput.value.trim();
@@ -128,9 +130,12 @@
             }
           }
 
-          // Call OpenAI API with function calling
-          try {
-            const response = await fetch(
+          eventDataArray = []; // Clear previous results
+
+          // Prepare the API requests
+          const apiRequests = [];
+          for (let i = 0; i < 3; i++) {
+            const apiRequest = fetch(
               "https://api.openai.com/v1/chat/completions",
               {
                 method: "POST",
@@ -158,17 +163,18 @@
                         properties: {
                           title: {
                             type: "string",
-                            description: "Title of the event. Never include Event in the title. It is redundant. Also the title should be short and descriptive. No need to include the date or time or location in the title.",
+                            description:
+                              "Title of the event. Never include Event in the title. It is redundant. Also the title should be short and descriptive. No need to include the date or time or location in the title.",
                           },
                           start: {
                             type: "string",
                             description:
-                              "Event start date and time in YYYYMMDDTHHMMSSZ format",
+                              "Event start date and time in YYYYMMDDTHHMMSS format",
                           },
                           end: {
                             type: "string",
                             description:
-                              "Event end date and time in YYYYMMDDTHHMMSSZ format",
+                              "Event end date and time in YYYYMMDDTHHMMSS format",
                           },
                           place: {
                             type: "string",
@@ -181,7 +187,8 @@
                           },
                           notes: {
                             type: "string",
-                            description: "Additional notes about the event or additoinal informations and details. Additional URLs, contact information, etc.",
+                            description:
+                              "Additional notes about the event or additional information and details. Additional URLs, contact information, etc.",
                           },
                         },
                         required: ["title", "start", "end"],
@@ -191,63 +198,179 @@
                   function_call: { name: "extract_event_info" },
                 }),
               },
-            );
+            )
+              .then(async (response) => {
+                if (!response.ok) {
+                  throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                const message = data.choices[0].message;
+                if (message.function_call && message.function_call.arguments) {
+                  const functionArgs = JSON.parse(
+                    message.function_call.arguments,
+                  );
+                  return functionArgs;
+                } else {
+                  console.error("Assistant message:", message);
+                  return null;
+                }
+              })
+              .catch((error) => {
+                console.error("Error:", error);
+                return null;
+              });
 
-            if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
-            }
+            apiRequests.push(apiRequest);
+          }
 
-            const data = await response.json();
+          // Run API requests in parallel
+          Promise.all(apiRequests).then((results) => {
+            // Filter out any null results (due to errors)
+            eventDataArray = results.filter((result) => result !== null);
 
-            const message = data.choices[0].message;
-
-            let eventData;
-
-            if (message.function_call && message.function_call.arguments) {
-              // The assistant called the function
-              const functionArgs = JSON.parse(message.function_call.arguments);
-              eventData = functionArgs;
-
-              // Display the structured data in the preview area
-              previewDiv.innerHTML =
-                "<h2>Event Data</h2><pre>" +
-                JSON.stringify(eventData, null, 2) +
-                "</pre>";
-
-              // Create ICS file
-              const icsContent = generateICS(eventData);
-
-              // Create a Blob and URL for the ICS file
-              const blob = new Blob([icsContent], { type: "text/calendar" });
-              const url = URL.createObjectURL(blob);
-
-              // Set up the download link
-              downloadLink.href = url;
-              downloadLink.style.display = "inline";
+            if (eventDataArray.length > 0) {
+              // Create options for each field
+              createFieldOptions(eventDataArray);
             } else {
               alert("Failed to extract event information.");
-              console.error("Assistant message:", message);
               return;
             }
-          } catch (error) {
-            console.error("Error:", error);
-            alert("An error occurred while processing the request.");
-          }
+          });
         });
+
+        function createFieldOptions(eventDataArray) {
+          const fields = ["title", "start", "end", "place", "url", "notes"];
+          previewDiv.innerHTML = "<h2>Select Event Data</h2>";
+
+          const form = document.createElement("form");
+          form.id = "eventDataForm";
+
+          fields.forEach((field) => {
+            // Collect all values for this field
+            const values = eventDataArray
+              .map((eventData) => eventData[field])
+              .filter((value) => value !== undefined);
+
+            // Get unique values
+            const uniqueValues = [...new Set(values)];
+
+            // If all values are the same, just display the value
+            if (uniqueValues.length === 1) {
+              const fieldDiv = document.createElement("div");
+              fieldDiv.style.marginBottom = "10px";
+
+              const label = document.createElement("label");
+              label.textContent =
+                field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+              fieldDiv.appendChild(label);
+
+              const span = document.createElement("span");
+              span.textContent = uniqueValues[0];
+              fieldDiv.appendChild(span);
+
+              // Hidden input to store the value
+              const hiddenInput = document.createElement("input");
+              hiddenInput.type = "hidden";
+              hiddenInput.name = field;
+              hiddenInput.value = uniqueValues[0];
+              fieldDiv.appendChild(hiddenInput);
+
+              form.appendChild(fieldDiv);
+            } else if (uniqueValues.length > 1) {
+              // Create option fields for the options
+              const fieldDiv = document.createElement("div");
+              fieldDiv.style.marginBottom = "10px";
+
+              const label = document.createElement("label");
+              label.textContent =
+                field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+              fieldDiv.appendChild(label);
+
+              uniqueValues.forEach((optionValue, index) => {
+                const optionDiv = document.createElement("div");
+
+                const radio = document.createElement("input");
+                radio.type = "radio";
+                radio.name = field;
+                radio.value = optionValue;
+                if (index === 0) {
+                  radio.checked = true; // default to first option
+                }
+
+                const radioLabel = document.createElement("label");
+                radioLabel.textContent = optionValue;
+
+                optionDiv.appendChild(radio);
+                optionDiv.appendChild(radioLabel);
+                fieldDiv.appendChild(optionDiv);
+              });
+
+              form.appendChild(fieldDiv);
+            } else {
+              // No values extracted for this field
+              const fieldDiv = document.createElement("div");
+              fieldDiv.style.marginBottom = "10px";
+
+              const label = document.createElement("label");
+              label.textContent =
+                field.charAt(0).toUpperCase() + field.slice(1) + ": ";
+              fieldDiv.appendChild(label);
+
+              const input = document.createElement("input");
+              input.type = "text";
+              input.name = field;
+              input.placeholder = "(No value)";
+              fieldDiv.appendChild(input);
+
+              form.appendChild(fieldDiv);
+            }
+          });
+
+          // Add a button to generate the ICS file
+          const generateButton = document.createElement("button");
+          generateButton.type = "button";
+          generateButton.textContent = "Generate ICS File";
+          generateButton.addEventListener("click", function () {
+            const formData = new FormData(form);
+            const selectedEventData = {};
+            for (const [key, value] of formData.entries()) {
+              selectedEventData[key] = value;
+            }
+            // Generate ICS file with selected data
+            const icsContent = generateICS(selectedEventData);
+
+            // Create a Blob and URL for the ICS file
+            const blob = new Blob([icsContent], { type: "text/calendar" });
+            const url = URL.createObjectURL(blob);
+
+            // Set up the download link
+            downloadLink.href = url;
+            downloadLink.style.display = "inline";
+          });
+
+          form.appendChild(generateButton);
+          previewDiv.appendChild(form);
+        }
 
         function generateICS(eventData) {
           const lines = [];
           lines.push("BEGIN:VCALENDAR");
           lines.push("VERSION:2.0");
+
+          // Include timezone information
+          const tzid =
+            Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
           lines.push("PRODID:-//Your Organization//Event to ICS Converter//EN");
           lines.push("BEGIN:VEVENT");
           lines.push("UID:" + generateUID());
           lines.push("DTSTAMP:" + formatDateTime(new Date()));
+
           if (eventData.start) {
-            lines.push("DTSTART:" + eventData.start);
+            lines.push("DTSTART;TZID=" + tzid + ":" + eventData.start);
           }
           if (eventData.end) {
-            lines.push("DTEND:" + eventData.end);
+            lines.push("DTEND;TZID=" + tzid + ":" + eventData.end);
           }
           if (eventData.title) {
             lines.push("SUMMARY:" + escapeICSText(eventData.title));
@@ -271,17 +394,16 @@
         }
 
         function formatDateTime(date) {
-          // Returns date in YYYYMMDDTHHMMSSZ format
+          // Returns date in YYYYMMDDTHHMMSS format
           const pad = (n) => (n < 10 ? "0" + n : n);
           return (
-            date.getUTCFullYear().toString() +
-            pad(date.getUTCMonth() + 1) +
-            pad(date.getUTCDate()) +
+            date.getFullYear().toString() +
+            pad(date.getMonth() + 1) +
+            pad(date.getDate()) +
             "T" +
-            pad(date.getUTCHours()) +
-            pad(date.getUTCMinutes()) +
-            pad(date.getUTCSeconds()) +
-            "Z"
+            pad(date.getHours()) +
+            pad(date.getMinutes()) +
+            pad(date.getSeconds())
           );
         }
 
