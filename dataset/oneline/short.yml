@@ -1,0 +1,41 @@
+context:
+  date:
+    relative: true
+
+input:
+  user: >
+    tomorrow afternoon
+    lunch with dani 
+    12 o'clock
+    at the fountain
+
+output:
+  expected:
+    - title:
+        ideal: [Lunch, Lunch with Dani]
+    - start:
+        must: $tomorrow 12:00
+    - end:
+        must: [$tomorrow 13:00]
+    - location:
+        ideal: ["/fountain/", "!/dani/", ]
+
+  variants:
+    - id: morning
+      context:
+        now: 2020-08-05 06:00
+      expected:
+        - start:
+            must: $tomorrow 12:00
+    - id: evening
+      context:
+        now: 2020-08-05 20:00
+      expected:
+        - start:
+            must: $tomorrow 12:00
+    - id: earlymorning
+      context:
+        now: 2020-08-05 02:00
+      expected:
+        - start:
+            must: $today 12:00

@@ -38,6 +38,11 @@
     <!-- Convert Button -->
     <button id="convertButton">Convert to ICS</button><br /><br />
 
+    <!-- Processing Label -->
+    <div id="processingLabel" style="display: none; font-weight: bold">
+      Processing...
+    </div>
+
     <!-- Preview Area -->
     <div id="preview"></div>
 
@@ -47,6 +52,8 @@
     >
 
     <script>
+      const SYSTEM_PROMPT_TIME_CONTEXT = `Today’s date and time are ${new Date().toISOString()}.`;
+
       document.addEventListener("DOMContentLoaded", function () {
         const apiKeyInput = document.getElementById("apiKey");
         const eventTextInput = document.getElementById("eventText");
@@ -56,6 +63,7 @@
         const modelSelect = document.getElementById("modelSelect");
         const preprocessCheckbox =
           document.getElementById("preprocessCheckbox");
+        const processingLabel = document.getElementById("processingLabel");
 
         // Load API key and model selection from localStorage
         if (localStorage.getItem("openai_api_key")) {
@@ -86,6 +94,11 @@
           localStorage.setItem("selected_model", selectedModel);
           localStorage.setItem("preprocess_enabled", preprocessEnabled);
 
+          // Show processing label
+          processingLabel.style.display = "block";
+          previewDiv.innerHTML = "";
+          downloadLink.style.display = "none";
+
           // Pre-processing Step
           if (preprocessEnabled) {
             try {
@@ -102,8 +115,7 @@
                     messages: [
                       {
                         role: "system",
-                        content:
-                          "You are an assistant that extracts important information from text about events, and removes any clutter or irrelevant details that might come from copy-paste artifacts.",
+                        content: `You are an assistant that extracts important information from text about events, and removes any clutter or irrelevant details that might come from copy-paste artifacts. ${SYSTEM_PROMPT_TIME_CONTEXT}`,
                       },
                       { role: "user", content: eventText },
                     ],
@@ -126,6 +138,7 @@
             } catch (error) {
               console.error("Pre-processing Error:", error);
               alert("An error occurred during pre-processing.");
+              processingLabel.style.display = "none";
               return;
             }
           }
@@ -148,8 +161,7 @@
                   messages: [
                     {
                       role: "system",
-                      content:
-                        "You are an assistant that extracts event information from text. That is most of the time copy & paste from sources that have unstructured data.",
+                      content: `You are an assistant that extracts event information from text. That is most of the time copy & paste from sources that have unstructured data. ${SYSTEM_PROMPT_TIME_CONTEXT}`,
                     },
                     { role: "user", content: eventText },
                   ],
@@ -164,7 +176,7 @@
                           title: {
                             type: "string",
                             description:
-                              "Title of the event. Never include Event in the title. It is redundant. Also the title should be short and descriptive. No need to include the date or time or location in the title.",
+                              "Title of the event. Never include `event` in the title. It is redundant. Also the title should be short and descriptive. No need to include the date or time or location in the title.",
                           },
                           start: {
                             type: "string",
@@ -225,6 +237,9 @@
 
           // Run API requests in parallel
           Promise.all(apiRequests).then((results) => {
+            // Hide processing label
+            processingLabel.style.display = "none";
+
             // Filter out any null results (due to errors)
             eventDataArray = results.filter((result) => result !== null);
 
@@ -420,25 +435,36 @@
         }
 
         function sanitizeDate(dateStr) {
-          // Remove any non-digit characters
-          let sanitized = dateStr.replace(/\D/g, "");
+          // Remove any non-digit characters except 'T'
+          let sanitized = dateStr.replace(/[^\dT]/g, "");
 
-          // Ensure the string is 14 characters long (YYYYMMDDHHMMSS)
-          if (sanitized.length === 8) {
-            // Date only, add default time 000000
-            sanitized += "000000";
-          } else if (sanitized.length === 12) {
-            // Missing seconds, add '00'
-            sanitized += "00";
-          } else if (sanitized.length > 14) {
-            // Truncate to 14 characters
-            sanitized = sanitized.substring(0, 14);
-          } else if (sanitized.length < 14) {
-            // Pad with zeros at the end
-            sanitized = sanitized.padEnd(14, "0");
+          // Ensure 'T' is present between date and time
+          if (!sanitized.includes("T")) {
+            // Insert 'T' at the correct position
+            sanitized =
+              sanitized.substring(0, 8) + "T" + sanitized.substring(8);
           }
 
-          return sanitized;
+          // Ensure the string is in 'YYYYMMDDTHHMMSS' format
+          const dateTimeRegex = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/;
+          const match = sanitized.match(dateTimeRegex);
+
+          if (match) {
+            // Valid format
+            return sanitized;
+          } else {
+            // Attempt to fix common issues
+            const digitsOnly = sanitized.replace(/T/g, "");
+            if (digitsOnly.length >= 14) {
+              sanitized =
+                digitsOnly.substring(0, 8) + "T" + digitsOnly.substring(8, 14);
+            } else {
+              sanitized = digitsOnly.padEnd(14, "0");
+              sanitized =
+                sanitized.substring(0, 8) + "T" + sanitized.substring(8, 14);
+            }
+            return sanitized;
+          }
         }
 
         function generateICS(eventData) {
