@@ -1,0 +1,81 @@
+body {
+  font-family: Arial, sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  color: #333;
+}
+
+label {
+  font-weight: bold;
+}
+
+input[type="text"],
+input[type="password"],
+textarea,
+select {
+  width: 100%;
+  max-width: 500px;
+  padding: 5px;
+  margin-bottom: 10px;
+}
+
+button {
+  padding: 10px 20px;
+}
+
+#processingLabel {
+  font-weight: bold;
+}
+
+#downloadLink {
+  display: inline-block;
+  margin-top: 10px;
+}
+
+#preview {
+  overflow-x: auto;
+}
+
+.table-container {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.table {
+  display: table;
+  border-collapse: collapse;
+}
+
+.column {
+  display: table-cell;
+  vertical-align: top;
+  padding: 10px;
+  border: 1px solid #ccc;
+}
+
+.column h3 {
+  text-align: center;
+}
+
+.column input[type="text"],
+.column textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.grouped-options {
+  margin-bottom: 20px;
+}
+
+.grouped-options label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.event-group {
+  margin-bottom: 20px;
+}
