@@ -4,14 +4,14 @@ import {
 } from "https://cdn.jsdelivr.net/gh/lit/dist@3/core/lit-core.min.js";
 
 // Use a placeholder for the timestamp that will be replaced before making actual API calls
-const SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Today's date and time are {{$now}}.`;
+const SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Don't change the language of the text. Today's date and time are {{$now}}.`;
 
 // Cache helper functions with SHA-256 hashing
 async function sha256(source) {
   const sourceBytes = new TextEncoder().encode(source);
   const digest = await crypto.subtle.digest("SHA-256", sourceBytes);
   const resultBytes = [...new Uint8Array(digest)];
-  return resultBytes.map(x => x.toString(16).padStart(2, '0')).join("");
+  return resultBytes.map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 // Get current timestamp in ISO format
@@ -152,7 +152,6 @@ class EventConverter extends LitElement {
       <h2>Select Event Data</h2>
       <form id="eventsDataForm" @submit=${(e) => e.preventDefault()}>
         <div class="table-container">
-          ${this.renderGlobalOptions()}
           ${this.previewData.map((group, groupIndex) =>
             this.renderEventGroup(group, groupIndex),
           )}
@@ -162,52 +161,6 @@ class EventConverter extends LitElement {
           Generate ICS File
         </button>
       </form>
-    `;
-  }
-
-  renderGlobalOptions() {
-    if (!this.previewData || !this.previewData.length) return "";
-
-    const globalFields = ["title", "place", "notes"];
-
-    return html`
-      <div class="column">
-        <h3>Global Options</h3>
-
-        ${globalFields.map((field) => {
-          const valuesSet = new Set();
-
-          this.previewData.forEach((group) => {
-            group.forEach((event) => {
-              if (event[field]) {
-                valuesSet.add(event[field]);
-              }
-            });
-          });
-
-          const values = Array.from(valuesSet);
-
-          return html`
-            <div class="grouped-options">
-              <label>Select ${field} for all events:</label>
-              ${values.map(
-                (value, index) => html`
-                  <div>
-                    <input
-                      type="radio"
-                      name="global_${field}"
-                      value=${value}
-                      ?checked=${index === 0}
-                      id="global_${field}_${index}"
-                    />
-                    <label for="global_${field}_${index}">${value}</label>
-                  </div>
-                `,
-              )}
-            </div>
-          `;
-        })}
-      </div>
     `;
   }
 
@@ -369,11 +322,11 @@ class EventConverter extends LitElement {
       ],
       function_call: { name: "extract_events_info" },
     };
-    
+
     // Use the body with placeholders for cache key generation
     const cacheId = await getCacheKey(endpoint, body);
     const cachedData = getCachedResponse(cacheId);
-    
+
     if (cachedData) {
       console.log("Using cached extract events response");
       const message = cachedData.choices[0].message;
@@ -385,11 +338,13 @@ class EventConverter extends LitElement {
     }
 
     console.log("Making fresh API call for event extraction");
-    
+
     // Create a deep copy of the request body and replace placeholders
     const requestBody = JSON.parse(JSON.stringify(body));
-    requestBody.messages[0].content = replacePlaceholders(requestBody.messages[0].content);
-    
+    requestBody.messages[0].content = replacePlaceholders(
+      requestBody.messages[0].content,
+    );
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -405,7 +360,7 @@ class EventConverter extends LitElement {
 
     const data = await response.json();
     setCachedResponse(cacheId, data);
-    
+
     const message = data.choices[0].message;
 
     if (message.function_call && message.function_call.arguments) {
@@ -444,10 +399,9 @@ class EventConverter extends LitElement {
     this.previewData.forEach((group, groupIndex) => {
       const event = {};
 
-      // Use global values if selected
-      ["title", "place", "notes"].forEach((field) => {
-        const globalValue = formData.get(`global_${field}`);
-        event[field] = globalValue || "";
+      // Add fields specific to the event
+      ["title", "place", "notes", "url"].forEach((field) => {
+        event[field] = formData.get(`event_${groupIndex}_${field}`) || "";
       });
 
       // Start and End times
@@ -457,11 +411,6 @@ class EventConverter extends LitElement {
       event["end"] = this.sanitizeDate(
         formData.get(`event_${groupIndex}_end`) || "",
       );
-
-      // Other fields specific to the event
-      ["url"].forEach((field) => {
-        event[field] = formData.get(`event_${groupIndex}_${field}`) || "";
-      });
 
       events.push(event);
     });
