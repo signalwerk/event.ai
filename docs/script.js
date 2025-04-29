@@ -7,6 +7,11 @@ import {
 // Use a placeholder for the timestamp that will be replaced before making actual API calls
 const SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Don't change the language of the text. Today's date and time are {{$now}}.`;
 
+// Check if the current hostname is localhost
+const isLocalhost =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
 // Cache helper functions with SHA-256 hashing
 async function sha256(source) {
   const sourceBytes = new TextEncoder().encode(source);
@@ -36,6 +41,12 @@ const getCacheKey = async (endpoint, body) => {
 
 const getCachedResponse = (key) => {
   try {
+    // Only use cache if running on localhost
+    if (!isLocalhost) {
+      console.log("Not using cache: not on localhost");
+      return null;
+    }
+
     const cached = sessionStorage.getItem(key);
     console.log(`Cache lookup for key: ${key}, Found: ${Boolean(cached)}`);
     return cached ? JSON.parse(cached) : null;
@@ -47,6 +58,12 @@ const getCachedResponse = (key) => {
 
 const setCachedResponse = (key, data) => {
   try {
+    // Only cache if running on localhost
+    if (!isLocalhost) {
+      console.log("Not caching: not on localhost");
+      return;
+    }
+
     sessionStorage.setItem(key, JSON.stringify(data));
     console.log(`Cache set for key: ${key}`);
   } catch (error) {
@@ -155,7 +172,7 @@ class EventConverter extends LitElement {
     this.apiKey = localStorage.getItem("openai_api_key") ?? "";
     this.eventText = localStorage.getItem("event_text") ?? "";
     this.selectedModel =
-      localStorage.getItem("selected_model") ?? "gpt-3.5-turbo";
+      localStorage.getItem("selected_model") ?? "gpt-4";
     this.processing = false;
     this.previewData = null;
     this.icsBlob = null;
