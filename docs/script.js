@@ -3,14 +3,60 @@ import {
   html,
 } from "https://cdn.jsdelivr.net/gh/lit/dist@3/core/lit-core.min.js";
 
-const SYSTEM_PROMPT_TIME_CONTEXT = `Today's date and time are ${new Date().toISOString()}.`;
+// Use a placeholder for the timestamp that will be replaced before making actual API calls
+const SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Today's date and time are {{$now}}.`;
+
+// Cache helper functions with SHA-256 hashing
+async function sha256(source) {
+  const sourceBytes = new TextEncoder().encode(source);
+  const digest = await crypto.subtle.digest("SHA-256", sourceBytes);
+  const resultBytes = [...new Uint8Array(digest)];
+  return resultBytes.map(x => x.toString(16).padStart(2, '0')).join("");
+}
+
+// Get current timestamp in ISO format
+const getCurrentTimestamp = () => {
+  return new Date().toISOString();
+};
+
+// Replace placeholder with actual timestamp
+const replacePlaceholders = (text) => {
+  return text.replace("{{$now}}", getCurrentTimestamp());
+};
+
+// Simple cache key function using SHA-256
+const getCacheKey = async (endpoint, body) => {
+  // Sort object keys to ensure consistent serialization
+  const sortedBody = JSON.stringify(body, Object.keys(body).sort());
+  const hash = await sha256(endpoint + sortedBody);
+  return `cache_${hash}`;
+};
+
+const getCachedResponse = (key) => {
+  try {
+    const cached = sessionStorage.getItem(key);
+    console.log(`Cache lookup for key: ${key}, Found: ${Boolean(cached)}`);
+    return cached ? JSON.parse(cached) : null;
+  } catch (error) {
+    console.error("Cache retrieval error:", error);
+    return null;
+  }
+};
+
+const setCachedResponse = (key, data) => {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(data));
+    console.log(`Cache set for key: ${key}`);
+  } catch (error) {
+    console.error("Cache storage error:", error);
+  }
+};
 
 class EventConverter extends LitElement {
   static properties = {
     apiKey: { type: String },
     eventText: { type: String },
     selectedModel: { type: String },
-    preprocessEnabled: { type: Boolean },
     processing: { type: Boolean },
     previewData: { type: Object },
     icsBlob: { type: Object },
@@ -19,12 +65,10 @@ class EventConverter extends LitElement {
 
   constructor() {
     super();
-    this.apiKey = localStorage.getItem("openai_api_key") || "";
-    this.eventText = "";
+    this.apiKey = localStorage.getItem("openai_api_key") ?? "";
+    this.eventText = localStorage.getItem("event_text") ?? "";
     this.selectedModel =
-      localStorage.getItem("selected_model") || "gpt-3.5-turbo";
-    this.preprocessEnabled =
-      localStorage.getItem("preprocess_enabled") === "true";
+      localStorage.getItem("selected_model") ?? "gpt-3.5-turbo";
     this.processing = false;
     this.previewData = null;
     this.icsBlob = null;
@@ -39,7 +83,10 @@ class EventConverter extends LitElement {
         type="password"
         id="apiKey"
         .value=${this.apiKey}
-        @input=${(e) => (this.apiKey = e.target.value)}
+        @input=${(e) => {
+          this.apiKey = e.target.value;
+          localStorage.setItem("openai_api_key", this.apiKey);
+        }}
         placeholder="Enter your OpenAI API Key"
       /><br /><br />
 
@@ -48,7 +95,10 @@ class EventConverter extends LitElement {
       <select
         id="modelSelect"
         .value=${this.selectedModel}
-        @change=${(e) => (this.selectedModel = e.target.value)}
+        @change=${(e) => {
+          this.selectedModel = e.target.value;
+          localStorage.setItem("selected_model", this.selectedModel);
+        }}
       >
         <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
         <option value="gpt-4">gpt-4</option>
@@ -57,15 +107,6 @@ class EventConverter extends LitElement {
       </select>
       <br /><br />
 
-      <!-- Pre-processing Option -->
-      <input
-        type="checkbox"
-        id="preprocessCheckbox"
-        ?checked=${this.preprocessEnabled}
-        @change=${(e) => (this.preprocessEnabled = e.target.checked)}
-      />
-      <label for="preprocessCheckbox">Enable Pre-processing</label><br /><br />
-
       <!-- Event Text Input -->
       <label for="eventText">Event Text:</label><br />
       <textarea
@@ -73,7 +114,10 @@ class EventConverter extends LitElement {
         rows="10"
         cols="50"
         .value=${this.eventText}
-        @input=${(e) => (this.eventText = e.target.value)}
+        @input=${(e) => {
+          this.eventText = e.target.value;
+          localStorage.setItem("event_text", this.eventText);
+        }}
         placeholder="Enter event details here..."
       ></textarea
       ><br /><br />
@@ -229,17 +273,12 @@ class EventConverter extends LitElement {
 
   async convertToICS() {
     const apiKey = this.apiKey.trim();
-    let eventText = this.eventText.trim();
+    const eventText = this.eventText.trim();
 
     if (!apiKey || !eventText) {
       alert("Please enter both API Key and Event Text.");
       return;
     }
-
-    // Store settings in localStorage
-    localStorage.setItem("openai_api_key", apiKey);
-    localStorage.setItem("selected_model", this.selectedModel);
-    localStorage.setItem("preprocess_enabled", this.preprocessEnabled);
 
     // Start processing
     this.processing = true;
@@ -248,11 +287,6 @@ class EventConverter extends LitElement {
     this.requestUpdate();
 
     try {
-      // Pre-processing Step
-      if (this.preprocessEnabled) {
-        eventText = await this.preprocessEventText(apiKey, eventText);
-      }
-
       // Extract events
       const eventsData = await this.extractEvents(apiKey, eventText);
 
@@ -271,102 +305,98 @@ class EventConverter extends LitElement {
     }
   }
 
-  async preprocessEventText(apiKey, eventText) {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + apiKey,
-      },
-      body: JSON.stringify({
-        model: this.selectedModel,
-        messages: [
-          {
-            role: "system",
-            content: `You are an assistant that extracts important information from text about events in the future, and removes any clutter or irrelevant details that might come from copy-paste artifacts. ${SYSTEM_PROMPT_TIME_CONTEXT}`,
-          },
-          { role: "user", content: eventText },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0].message.content.trim();
-  }
-
   async extractEvents(apiKey, eventText) {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + apiKey,
-      },
-      body: JSON.stringify({
-        model: this.selectedModel,
-        messages: [
-          {
-            role: "system",
-            content: `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. ${SYSTEM_PROMPT_TIME_CONTEXT}`,
-          },
-          { role: "user", content: eventText },
-        ],
-        functions: [
-          {
-            name: "extract_events_info",
-            description:
-              "Extracts multiple events information from text and returns them as structured data.",
-            parameters: {
-              type: "object",
-              properties: {
-                events: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      title: {
-                        type: "string",
-                        description:
-                          "Title of the event. Never include 'event' in the title. It is redundant. Also, the title should be short and descriptive. No need to include the date or time or location in the title.",
-                      },
-                      start: {
-                        type: "string",
-                        description:
-                          "Event start date and time in YYYYMMDDTHHMMSS format",
-                      },
-                      end: {
-                        type: "string",
-                        description:
-                          "Event end date and time in YYYYMMDDTHHMMSS format",
-                      },
-                      place: {
-                        type: "string",
-                        description:
-                          "Location of the event. Name of the location and address.",
-                      },
-                      url: {
-                        type: "string",
-                        description: "URL of the event or the location.",
-                      },
-                      notes: {
-                        type: "string",
-                        description:
-                          "Additional notes about the event or additional information and details. Additional URLs, contact information, etc.",
-                      },
+    const endpoint = "https://api.openai.com/v1/chat/completions";
+    const body = {
+      model: this.selectedModel,
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT,
+        },
+        { role: "user", content: eventText },
+      ],
+      functions: [
+        {
+          name: "extract_events_info",
+          description:
+            "Extracts multiple events information from text and returns them as structured data.",
+          parameters: {
+            type: "object",
+            properties: {
+              events: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    title: {
+                      type: "string",
+                      description:
+                        "Title of the event. Never include 'event' in the title. It is redundant. Also, the title should be short and descriptive. Don't include the date or time or location in the title.",
                     },
-                    required: ["title", "start", "end"],
+                    start: {
+                      type: "string",
+                      description:
+                        "Event start date and time in YYYYMMDDTHHMMSS format",
+                    },
+                    end: {
+                      type: "string",
+                      description:
+                        "Event end date and time in YYYYMMDDTHHMMSS format",
+                    },
+                    place: {
+                      type: "string",
+                      description:
+                        "Location of the event. Name of the location and address.",
+                    },
+                    url: {
+                      type: "string",
+                      description: "URL of the event or the location.",
+                    },
+                    notes: {
+                      type: "string",
+                      description:
+                        "Additional notes about the event or additional information and details. Additional URLs, contact information, etc.",
+                    },
                   },
+                  required: ["title", "start", "end"],
                 },
               },
-              required: ["events"],
             },
+            required: ["events"],
           },
-        ],
-        function_call: { name: "extract_events_info" },
-      }),
+        },
+      ],
+      function_call: { name: "extract_events_info" },
+    };
+    
+    // Use the body with placeholders for cache key generation
+    const cacheId = await getCacheKey(endpoint, body);
+    const cachedData = getCachedResponse(cacheId);
+    
+    if (cachedData) {
+      console.log("Using cached extract events response");
+      const message = cachedData.choices[0].message;
+      if (message.function_call && message.function_call.arguments) {
+        const functionArgs = JSON.parse(message.function_call.arguments);
+        return functionArgs.events;
+      }
+      return [];
+    }
+
+    console.log("Making fresh API call for event extraction");
+    
+    // Create a deep copy of the request body and replace placeholders
+    const requestBody = JSON.parse(JSON.stringify(body));
+    requestBody.messages[0].content = replacePlaceholders(requestBody.messages[0].content);
+    
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey,
+      },
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -374,6 +404,8 @@ class EventConverter extends LitElement {
     }
 
     const data = await response.json();
+    setCachedResponse(cacheId, data);
+    
     const message = data.choices[0].message;
 
     if (message.function_call && message.function_call.arguments) {
