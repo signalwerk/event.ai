@@ -8,6 +8,8 @@
   --color-gray: #767778;
   --color-primary: var(--color-blue);
 
+  --link-color: var(--color-primary);
+
   --selection-color: var(--color-white);
   --selection-color-bg: var(--color-primary);
 }
@@ -31,6 +33,10 @@ html {
   line-height: 1.5;
   color: var(--color-black);
   background-color: var(--color-white);
+}
+
+body {
+  padding-bottom: 8rem;
 }
 
 ::selection {

@@ -79,13 +79,17 @@ class EventConverter extends LitElement {
       box-sizing: border-box;
     }
 
+    * {
+      margin: 0;
+      padding: 0;
+      font: inherit; /* Get rid of all font sizes and heights */
+    }
+
     h1,
-    h2,
-    h3 {
+    h2 {
       font-weight: 700;
       margin-top: 1rem;
       margin-bottom: 0.2rem;
-      text-wrap: balance;
     }
 
     h1 {
@@ -97,6 +101,7 @@ class EventConverter extends LitElement {
     }
 
     h3 {
+      margin-top: 0;
       font-size: 0.8rem;
     }
 
@@ -115,11 +120,41 @@ class EventConverter extends LitElement {
       margin: 0.7rem 0;
       padding: 0.5rem;
       display: block;
+      accent-color: var(--color-primary);
+    }
+
+    input[type="checkbox"] {
+      accent-color: var(--color-primary);
     }
 
     button {
-      padding: 0.7rem 2rem;
+      box-shadow: none;
+      background: transparent;
+      text-shadow: none;
+      cursor: pointer;
+      line-height: inherit;
+      border: 0.15em solid var(--color-black);
+      border-radius: 0;
+      color: inherit;
+      padding: 0.5em 1em;
       margin: 0.7rem 0;
+    }
+
+    button:hover:not(:disabled) {
+      color: var(--color-white);
+      background-color: var(--color-primary);
+      border-color: var(--color-primary);
+    }
+    a {
+      text-decoration: none;
+      color: var(--link-color);
+      text-underline-offset: 0.3em;
+      text-decoration: underline currentColor;
+      text-decoration-thickness: 0.15em;
+    }
+
+    a:hover {
+      color: inherit;
     }
 
     .processing-label {
@@ -152,7 +187,7 @@ class EventConverter extends LitElement {
       position: relative;
       vertical-align: top;
       padding: 0.5rem;
-      border: 1px solid #ccc;
+      border: var(--color-gray) 1px solid;
     }
 
     @media (min-width: 768px) {
