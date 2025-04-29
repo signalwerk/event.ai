@@ -73,6 +73,12 @@ const setCachedResponse = (key, data) => {
 
 class EventConverter extends LitElement {
   static styles = css`
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
     h1,
     h2,
     h3 {
@@ -106,13 +112,14 @@ class EventConverter extends LitElement {
     textarea,
     select {
       width: 100%;
-      padding: 5px;
-      margin-bottom: 10px;
+      margin: 0.7rem 0;
+      padding: 0.5rem;
       display: block;
     }
 
     button {
-      padding: 10px 20px;
+      padding: 0.7rem 2rem;
+      margin: 0.7rem 0;
     }
 
     .processing-label {
@@ -121,7 +128,7 @@ class EventConverter extends LitElement {
 
     .download-link {
       display: inline-block;
-      margin-top: 10px;
+      margin-top: 0.7rem;
     }
 
     .preview {
@@ -135,25 +142,26 @@ class EventConverter extends LitElement {
 
     .table-container {
       display: flex;
-      flex-direction: row;
-      align-items: flex-start;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      flex-direction: column;
+      gap: 1rem;
     }
 
     .column {
+      position: relative;
       vertical-align: top;
-      padding: 10px;
+      padding: 0.5rem;
       border: 1px solid #ccc;
-      margin-right: 10px;
     }
 
-    .column h3 {
-      text-align: center;
-    }
-
-    .column input[type="text"],
-    .column textarea {
-      width: 100%;
-      box-sizing: border-box;
+    @media (min-width: 768px) {
+      .table-container {
+        flex-direction: row;
+      }
+      .column {
+        width: calc(50% - 0.5rem);
+      }
     }
   `;
 
@@ -171,8 +179,7 @@ class EventConverter extends LitElement {
     super();
     this.apiKey = localStorage.getItem("openai_api_key") ?? "";
     this.eventText = localStorage.getItem("event_text") ?? "";
-    this.selectedModel =
-      localStorage.getItem("selected_model") ?? "gpt-4";
+    this.selectedModel = localStorage.getItem("selected_model") ?? "gpt-4";
     this.processing = false;
     this.previewData = null;
     this.icsBlob = null;
