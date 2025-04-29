@@ -6,56 +6,9 @@
   </head>
   <body>
     <h1>Event to ICS Converter</h1>
-
-    <!-- API Key Input -->
-    <label for="apiKey">API Key:</label>
-    <input
-      type="password"
-      id="apiKey"
-      placeholder="Enter your OpenAI API Key"
-    /><br /><br />
-
-    <!-- Model Selection Dropdown -->
-    <label for="modelSelect">Select Model:</label>
-    <select id="modelSelect">
-      <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-      <option value="gpt-4">gpt-4</option>
-      <option value="gpt-4o-mini">gpt-4o-mini</option>
-      <option value="gpt-4o">gpt-4o</option></select
-    >
-    </select>
-    <br /><br />
-
-    <!-- Pre-processing Option -->
-    <input type="checkbox" id="preprocessCheckbox" />
-    <label for="preprocessCheckbox">Enable Pre-processing</label><br /><br />
-
-    <!-- Event Text Input -->
-    <label for="eventText">Event Text:</label><br />
-    <textarea
-      id="eventText"
-      rows="10"
-      cols="50"
-      placeholder="Enter event details here..."
-    ></textarea
-    ><br /><br />
-
-    <!-- Convert Button -->
-    <button id="convertButton">Convert to ICS</button><br /><br />
-
-    <!-- Processing Label -->
-    <div id="processingLabel" style="display: none; font-weight: bold">
-      Processing...
-    </div>
-
-    <!-- Preview Area -->
-    <div id="preview"></div>
-
-    <!-- Download Link -->
-    <a id="downloadLink" href="#" download="events.ics" style="display: none"
-      >Download ICS File</a
-    >
-
-    <script src="script.js"></script>
+    
+    <event-converter></event-converter>
+    
+    <script type="module" src="script.js"></script>
   </body>
 </html>
