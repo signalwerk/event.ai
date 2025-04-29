@@ -58,7 +58,7 @@ document.addEventListener("DOMContentLoaded", function () {
               messages: [
                 {
                   role: "system",
-                  content: `You are an assistant that extracts important information from text about events, and removes any clutter or irrelevant details that might come from copy-paste artifacts. ${SYSTEM_PROMPT_TIME_CONTEXT}`,
+                  content: `You are an assistant that extracts important information from text about events in the future, and removes any clutter or irrelevant details that might come from copy-paste artifacts. ${SYSTEM_PROMPT_TIME_CONTEXT}`,
                 },
                 { role: "user", content: eventText },
               ],
