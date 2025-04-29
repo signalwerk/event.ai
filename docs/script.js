@@ -1,6 +1,7 @@
 import {
   LitElement,
   html,
+  css,
 } from "https://cdn.jsdelivr.net/gh/lit/dist@3/core/lit-core.min.js";
 
 // Use a placeholder for the timestamp that will be replaced before making actual API calls
@@ -27,7 +28,8 @@ const replacePlaceholders = (text) => {
 // Simple cache key function using SHA-256
 const getCacheKey = async (endpoint, body) => {
   // Sort object keys to ensure consistent serialization
-  const sortedBody = JSON.stringify(body, Object.keys(body).sort());
+  const sortedBody = JSON.stringify(body);
+  console.log(endpoint + sortedBody);
   const hash = await sha256(endpoint + sortedBody);
   return `cache_${hash}`;
 };
@@ -53,6 +55,91 @@ const setCachedResponse = (key, data) => {
 };
 
 class EventConverter extends LitElement {
+  static styles = css`
+    h1,
+    h2,
+    h3 {
+      font-weight: 700;
+      margin-top: 1rem;
+      margin-bottom: 0.2rem;
+      text-wrap: balance;
+    }
+
+    h1 {
+      font-size: 1.2rem;
+    }
+
+    h2 {
+      font-size: 1rem;
+    }
+
+    h3 {
+      font-size: 0.8rem;
+    }
+
+    label {
+      margin-top: 1rem;
+      margin-bottom: 0.4rem;
+      font-weight: 700;
+      display: block;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 5px;
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    button {
+      padding: 10px 20px;
+    }
+
+    .processing-label {
+      font-weight: bold;
+    }
+
+    .download-link {
+      display: inline-block;
+      margin-top: 10px;
+    }
+
+    .preview {
+      overflow-x: auto;
+    }
+
+    .table {
+      display: table;
+      border-collapse: collapse;
+    }
+
+    .table-container {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+    }
+
+    .column {
+      vertical-align: top;
+      padding: 10px;
+      border: 1px solid #ccc;
+      margin-right: 10px;
+    }
+
+    .column h3 {
+      text-align: center;
+    }
+
+    .column input[type="text"],
+    .column textarea {
+      width: 100%;
+      box-sizing: border-box;
+    }
+  `;
+
   static properties = {
     apiKey: { type: String },
     eventText: { type: String },
@@ -78,7 +165,9 @@ class EventConverter extends LitElement {
   render() {
     return html`
       <!-- API Key Input -->
-      <label for="apiKey">API Key:</label>
+      <h1>Event to ICS Converter</h1>
+
+      <label for="apiKey">API Key</label>
       <input
         type="password"
         id="apiKey"
@@ -88,10 +177,10 @@ class EventConverter extends LitElement {
           localStorage.setItem("openai_api_key", this.apiKey);
         }}
         placeholder="Enter your OpenAI API Key"
-      /><br /><br />
+      />
 
       <!-- Model Selection Dropdown -->
-      <label for="modelSelect">Select Model:</label>
+      <label for="modelSelect">Select Model</label>
       <select
         id="modelSelect"
         .value=${this.selectedModel}
@@ -105,25 +194,22 @@ class EventConverter extends LitElement {
         <option value="gpt-4o-mini">gpt-4o-mini</option>
         <option value="gpt-4o">gpt-4o</option>
       </select>
-      <br /><br />
 
       <!-- Event Text Input -->
-      <label for="eventText">Event Text:</label><br />
+      <label for="eventText">Event Text</label>
       <textarea
         id="eventText"
         rows="10"
-        cols="50"
         .value=${this.eventText}
         @input=${(e) => {
           this.eventText = e.target.value;
           localStorage.setItem("event_text", this.eventText);
         }}
         placeholder="Enter event details here..."
-      ></textarea
-      ><br /><br />
+      ></textarea>
 
-      <!-- Convert Button -->
-      <button @click=${this.convertToICS}>Convert to ICS</button><br /><br />
+      <!-- Extract Events Button -->
+      <button @click=${this.extractEventsFromText}>Extract Events</button>
 
       <!-- Processing Label -->
       ${this.processing
@@ -152,8 +238,8 @@ class EventConverter extends LitElement {
       <h2>Select Event Data</h2>
       <form id="eventsDataForm" @submit=${(e) => e.preventDefault()}>
         <div class="table-container">
-          ${this.previewData.map((group, groupIndex) =>
-            this.renderEventGroup(group, groupIndex),
+          ${this.previewData.map((event, eventIndex) =>
+            this.renderEventGroup(event, eventIndex),
           )}
         </div>
 
@@ -164,67 +250,77 @@ class EventConverter extends LitElement {
     `;
   }
 
-  renderEventGroup(group, groupIndex) {
+  renderEventGroup(event, eventIndex) {
     return html`
       <div class="column">
-        <h3>Event Group ${groupIndex + 1}</h3>
+        <h3>Event ${eventIndex + 1}</h3>
 
-        <div style="margin-bottom: 10px;">
-          <label>Start:</label>
+        <div class="row">
+          <label for="event_${eventIndex}_include">Include in ICS</label>
           <input
-            type="text"
-            name="event_${groupIndex}_start"
-            .value=${group[0].start}
+            type="checkbox"
+            id="event_${eventIndex}_include"
+            name="event_${eventIndex}_include"
+            checked
           />
         </div>
 
-        <div style="margin-bottom: 10px;">
-          <label>End:</label>
+        <div class="row">
+          <label>Start</label>
           <input
             type="text"
-            name="event_${groupIndex}_end"
-            .value=${group[0].end}
+            name="event_${eventIndex}_start"
+            .value=${event.start}
           />
         </div>
 
-        ${["title", "place", "url", "notes"].map((field) => {
-          const valuesSet = new Set();
+        <div class="row">
+          <label>End</label>
+          <input
+            type="text"
+            name="event_${eventIndex}_end"
+            .value=${event.end}
+          />
+        </div>
 
-          group.forEach((event) => {
-            if (event[field]) {
-              valuesSet.add(event[field]);
-            }
-          });
+        <div class="row">
+          <label>Title</label>
+          <input
+            type="text"
+            name="event_${eventIndex}_title"
+            .value=${event.title || ""}
+          />
+        </div>
 
-          const values = Array.from(valuesSet);
+        <div class="row">
+          <label>Place</label>
+          <input
+            type="text"
+            name="event_${eventIndex}_place"
+            .value=${event.place || ""}
+          />
+        </div>
 
-          return html`
-            <div class="grouped-options">
-              <label>Select ${field}:</label>
-              ${values.map(
-                (value, index) => html`
-                  <div>
-                    <input
-                      type="radio"
-                      name="event_${groupIndex}_${field}"
-                      value=${value}
-                      ?checked=${index === 0}
-                      id="event_${groupIndex}_${field}_${index}"
-                    />
-                    <label for="event_${groupIndex}_${field}_${index}"
-                      >${value}</label
-                    >
-                  </div>
-                `,
-              )}
-            </div>
-          `;
-        })}
+        <div class="row">
+          <label>URL</label>
+          <input
+            type="text"
+            name="event_${eventIndex}_url"
+            .value=${event.url || ""}
+          />
+        </div>
+
+        <div class="row">
+          <label>Notes</label>
+          <textarea name="event_${eventIndex}_notes" rows="3" cols="40">
+${event.notes || ""}</textarea
+          >
+        </div>
       </div>
     `;
   }
 
-  async convertToICS() {
+  async extractEventsFromText() {
     const apiKey = this.apiKey.trim();
     const eventText = this.eventText.trim();
 
@@ -244,8 +340,8 @@ class EventConverter extends LitElement {
       const eventsData = await this.extractEvents(apiKey, eventText);
 
       if (eventsData.length > 0) {
-        // Group events by start and end time
-        this.previewData = this.groupEventsByStartEnd(eventsData);
+        // Use events data directly without grouping
+        this.previewData = eventsData;
       } else {
         alert("Failed to extract event information.");
       }
@@ -325,6 +421,14 @@ class EventConverter extends LitElement {
 
     // Use the body with placeholders for cache key generation
     const cacheId = await getCacheKey(endpoint, body);
+    // Add a console log to better understand caching behavior
+    console.log(
+      "Using model:",
+      this.selectedModel,
+      "Text size:",
+      eventText.length,
+    );
+
     const cachedData = getCachedResponse(cacheId);
 
     if (cachedData) {
@@ -371,20 +475,6 @@ class EventConverter extends LitElement {
     return [];
   }
 
-  groupEventsByStartEnd(eventsData) {
-    const grouped = {};
-
-    eventsData.forEach((event) => {
-      const key = `${event.start}_${event.end}`;
-      if (!grouped[key]) {
-        grouped[key] = [];
-      }
-      grouped[key].push(event);
-    });
-
-    return Object.values(grouped);
-  }
-
   generateICSFile() {
     // Get the form element
     const form = this.shadowRoot.querySelector("#eventsDataForm");
@@ -396,23 +486,28 @@ class EventConverter extends LitElement {
     // Build events array
     const events = [];
 
-    this.previewData.forEach((group, groupIndex) => {
-      const event = {};
+    this.previewData.forEach((event, eventIndex) => {
+      // Check if this event should be included
+      if (!formData.get(`event_${eventIndex}_include`)) {
+        return; // Skip this event
+      }
 
-      // Add fields specific to the event
+      const eventData = {};
+
+      // Add fields from the form
       ["title", "place", "notes", "url"].forEach((field) => {
-        event[field] = formData.get(`event_${groupIndex}_${field}`) || "";
+        eventData[field] = formData.get(`event_${eventIndex}_${field}`) || "";
       });
 
       // Start and End times
-      event["start"] = this.sanitizeDate(
-        formData.get(`event_${groupIndex}_start`) || "",
+      eventData["start"] = this.sanitizeDate(
+        formData.get(`event_${eventIndex}_start`) || "",
       );
-      event["end"] = this.sanitizeDate(
-        formData.get(`event_${groupIndex}_end`) || "",
+      eventData["end"] = this.sanitizeDate(
+        formData.get(`event_${eventIndex}_end`) || "",
       );
 
-      events.push(event);
+      events.push(eventData);
     });
 
     // Generate ICS content
