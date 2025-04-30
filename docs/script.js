@@ -257,7 +257,7 @@ class EventConverter extends LitElement {
         <option value="openai-gpt-4o-mini">OpenAI - GPT-4o Mini</option>
         <option value="openai-gpt-4o">OpenAI - GPT-4o</option>
         <option value="openrouter-google/gemini-2.0-flash-exp:free">
-          OpenRouter - Gemini 2.0 Flash Exp (free)
+          OpenRouter - Gemini 2.0 Flash Experimental (free)
         </option>
         <option value="openrouter-mistralai/mistral-small-3.1-24b-instruct:free">
           OpenRouter - Mistral Small 3.1 24B Instruct (free)
