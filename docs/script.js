@@ -259,7 +259,9 @@ class EventConverter extends LitElement {
         <option value="openrouter-google/gemini-2.0-flash-exp:free">
           OpenRouter - Gemini 2.0 Flash Experimental (free)
         </option>
-        <option value="openrouter-mistralai/mistral-small-3.1-24b-instruct:free">
+        <option
+          value="openrouter-mistralai/mistral-small-3.1-24b-instruct:free"
+        >
           OpenRouter - Mistral Small 3.1 24B Instruct (free)
         </option>
         <option value="openrouter-mistralai/mistral-7b-instruct:free">
@@ -574,6 +576,7 @@ ${event.notes || ""}</textarea
 
     if (this.selectedConnection.startsWith("openrouter")) {
       headers["HTTP-Referer"] = window.location.href;
+      headers["X-Title"] = "Events labeling tool";
     }
 
     // Use the body with placeholders for cache key generation
