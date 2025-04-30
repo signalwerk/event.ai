@@ -10,6 +10,10 @@ set -e
 MODEL="google/gemini-2.0-flash-exp:free"
 PROMPT_FILE="test5.md"
 
+# System prompt
+SYSTEM_PROMPT_TIMESTAMP=$(date -Iseconds)
+SYSTEM_PROMPT="You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Don't change the language of the text. Today's date and time are ${SYSTEM_PROMPT_TIMESTAMP}."
+
 # Check if prompt file or .env exists
 if [ ! -f "$PROMPT_FILE" ] || [ ! -f .env ]; then
   echo "Error: $PROMPT_FILE or .env file not found"
@@ -34,10 +38,16 @@ API_KEY=$(grep OPENROUTER_API_KEY .env | cut -d '=' -f2)
 curl https://openrouter.ai/api/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $API_KEY" \
+  -H "HTTP-Referer: https://localhost" \
+  -H "X-Title: Events labeling tool" \
   --data @- > "DATA/${OUTPUT_FILE}.json" << EOF
 {
   "model": "${MODEL}",
   "messages": [
+    {
+      "role": "system",
+      "content": "${SYSTEM_PROMPT}"
+    },
     {
       "role": "user",
       "content": [
