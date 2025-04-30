@@ -203,7 +203,9 @@ class EventConverter extends LitElement {
   static properties = {
     apiKey: { type: String },
     eventText: { type: String },
-    selectedModel: { type: String },
+    selectedConnection: { type: String },
+    customApiUrl: { type: String },
+    customModel: { type: String },
     processing: { type: Boolean },
     previewData: { type: Object },
     icsBlob: { type: Object },
@@ -214,7 +216,12 @@ class EventConverter extends LitElement {
     super();
     this.apiKey = localStorage.getItem("openai_api_key") ?? "";
     this.eventText = localStorage.getItem("event_text") ?? "";
-    this.selectedModel = localStorage.getItem("selected_model") ?? "gpt-4";
+    this.selectedConnection =
+      localStorage.getItem("selected_connection") ?? "openai-gpt-4";
+    this.customApiUrl =
+      localStorage.getItem("custom_api_url") ??
+      "https://api.openai.com/v1/chat/completions";
+    this.customModel = localStorage.getItem("custom_model") ?? "gpt-4";
     this.processing = false;
     this.previewData = null;
     this.icsBlob = null;
@@ -235,24 +242,59 @@ class EventConverter extends LitElement {
           this.apiKey = e.target.value;
           localStorage.setItem("openai_api_key", this.apiKey);
         }}
-        placeholder="Enter your OpenAI API Key"
+        placeholder="Enter your API Key"
       />
 
-      <!-- Model Selection Dropdown -->
-      <label for="modelSelect">Select Model</label>
+      <!-- Connection Selection Dropdown -->
+      <label for="connectionSelect">Select Connection</label>
       <select
-        id="modelSelect"
-        .value=${this.selectedModel}
-        @change=${(e) => {
-          this.selectedModel = e.target.value;
-          localStorage.setItem("selected_model", this.selectedModel);
-        }}
+        id="connectionSelect"
+        .value=${this.selectedConnection}
+        @change=${this.handleConnectionChange}
       >
-        <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
-        <option value="gpt-4">gpt-4</option>
-        <option value="gpt-4o-mini">gpt-4o-mini</option>
-        <option value="gpt-4o">gpt-4o</option>
+        <option value="openai-gpt-3.5-turbo">OpenAI - GPT-3.5 Turbo</option>
+        <option value="openai-gpt-4">OpenAI - GPT-4</option>
+        <option value="openai-gpt-4o-mini">OpenAI - GPT-4o Mini</option>
+        <option value="openai-gpt-4o">OpenAI - GPT-4o</option>
+        <option value="openrouter-google/gemini-2.0-flash-exp:free">
+          OpenRouter - Gemini 2.0 Flash Exp (free)
+        </option>
+        <option value="openrouter-mistralai/mistral-small-3.1-24b-instruct:free">
+          OpenRouter - Mistral Small 3.1 24B Instruct (free)
+        </option>
+        <option value="openrouter-mistralai/mistral-7b-instruct:free">
+          OpenRouter - Mistral 7B Instruct (free)
+        </option>
+        <option value="custom">Custom API</option>
       </select>
+
+      <!-- Custom API Options (conditionally displayed) -->
+      ${this.selectedConnection === "custom"
+        ? html`
+            <label for="customApiUrl">Custom API URL</label>
+            <input
+              type="text"
+              id="customApiUrl"
+              .value=${this.customApiUrl}
+              @input=${(e) => {
+                this.customApiUrl = e.target.value;
+                localStorage.setItem("custom_api_url", this.customApiUrl);
+              }}
+              placeholder="Enter API URL (e.g., https://api.openai.com/v1/chat/completions)"
+            />
+            <label for="customModel">Model Name</label>
+            <input
+              type="text"
+              id="customModel"
+              .value=${this.customModel}
+              @input=${(e) => {
+                this.customModel = e.target.value;
+                localStorage.setItem("custom_model", this.customModel);
+              }}
+              placeholder="Enter model name (e.g., gpt-4)"
+            />
+          `
+        : ""}
 
       <!-- Event Text Input -->
       <label for="eventText">Event Text</label>
@@ -288,6 +330,35 @@ class EventConverter extends LitElement {
           >`
         : ""}
     `;
+  }
+
+  handleConnectionChange(e) {
+    const previousConnection = this.selectedConnection;
+    this.selectedConnection = e.target.value;
+
+    // If switching to custom, save the previous connection's endpoint and model
+    if (
+      this.selectedConnection === "custom" &&
+      previousConnection !== "custom"
+    ) {
+      let model, endpoint;
+
+      if (previousConnection.startsWith("openrouter")) {
+        endpoint = "https://openrouter.ai/api/v1/chat/completions";
+        model = previousConnection.replace("openrouter-", "");
+      } else {
+        endpoint = "https://api.openai.com/v1/chat/completions";
+        model = previousConnection.replace("openai-", "");
+      }
+
+      this.customApiUrl = endpoint;
+      this.customModel = model;
+      localStorage.setItem("custom_api_url", endpoint);
+      localStorage.setItem("custom_model", model);
+    }
+
+    localStorage.setItem("selected_connection", this.selectedConnection);
+    this.requestUpdate();
   }
 
   renderPreview() {
@@ -353,11 +424,12 @@ class EventConverter extends LitElement {
 
         <div class="row">
           <label>Place</label>
-          <input
+          <textarea
             type="text"
             name="event_${eventIndex}_place"
+            rows="4"
             .value=${event.place || ""}
-          />
+          ></textarea>
         </div>
 
         <div class="row">
@@ -371,7 +443,7 @@ class EventConverter extends LitElement {
 
         <div class="row">
           <label>Notes</label>
-          <textarea name="event_${eventIndex}_notes" rows="3" cols="40">
+          <textarea name="event_${eventIndex}_notes" rows="4">
 ${event.notes || ""}</textarea
           >
         </div>
@@ -414,9 +486,22 @@ ${event.notes || ""}</textarea
   }
 
   async extractEvents(apiKey, eventText) {
-    const endpoint = "https://api.openai.com/v1/chat/completions";
+    // Get API endpoint and model based on selected connection
+    let endpoint, model;
+
+    if (this.selectedConnection === "custom") {
+      endpoint = this.customApiUrl;
+      model = this.customModel;
+    } else if (this.selectedConnection.startsWith("openrouter")) {
+      endpoint = "https://openrouter.ai/api/v1/chat/completions";
+      model = this.selectedConnection.replace("openrouter-", "");
+    } else {
+      endpoint = "https://api.openai.com/v1/chat/completions";
+      model = this.selectedConnection.replace("openai-", "");
+    }
+
     const body = {
-      model: this.selectedModel,
+      model: model,
       messages: [
         {
           role: "system",
@@ -424,66 +509,79 @@ ${event.notes || ""}</textarea
         },
         { role: "user", content: eventText },
       ],
-      functions: [
+      tools: [
         {
-          name: "extract_events_info",
-          description:
-            "Extracts multiple events information from text and returns them as structured data.",
-          parameters: {
-            type: "object",
-            properties: {
-              events: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    title: {
-                      type: "string",
-                      description:
-                        "Title of the event. Never include 'event' in the title. It is redundant. Also, the title should be short and descriptive. Don't include the date or time or location in the title.",
+          type: "function",
+          function: {
+            name: "extract_events_info",
+            description:
+              "Extracts multiple events information from text and returns them as structured data.",
+            parameters: {
+              type: "object",
+              properties: {
+                events: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: {
+                        type: "string",
+                        description:
+                          "Title of the event. Never include 'event' in the title. It is redundant. Also, the title should be short and descriptive. Don't include the date or time or location in the title.",
+                      },
+                      start: {
+                        type: "string",
+                        description:
+                          "Event start date and time in YYYYMMDDTHHMMSS format",
+                      },
+                      end: {
+                        type: "string",
+                        description:
+                          "Event end date and time in YYYYMMDDTHHMMSS format",
+                      },
+                      place: {
+                        type: "string",
+                        description:
+                          "Location of the event. Name of the location and address. Newline separated.",
+                      },
+                      url: {
+                        type: "string",
+                        description: "URL of the event or the location.",
+                      },
+                      notes: {
+                        type: "string",
+                        description:
+                          "Additional notes about the event or additional information and details. Additional URLs, contact information, etc.",
+                      },
                     },
-                    start: {
-                      type: "string",
-                      description:
-                        "Event start date and time in YYYYMMDDTHHMMSS format",
-                    },
-                    end: {
-                      type: "string",
-                      description:
-                        "Event end date and time in YYYYMMDDTHHMMSS format",
-                    },
-                    place: {
-                      type: "string",
-                      description:
-                        "Location of the event. Name of the location and address.",
-                    },
-                    url: {
-                      type: "string",
-                      description: "URL of the event or the location.",
-                    },
-                    notes: {
-                      type: "string",
-                      description:
-                        "Additional notes about the event or additional information and details. Additional URLs, contact information, etc.",
-                    },
+                    required: ["title", "start", "end"],
                   },
-                  required: ["title", "start", "end"],
                 },
               },
+              required: ["events"],
             },
-            required: ["events"],
           },
         },
       ],
-      function_call: { name: "extract_events_info" },
+      tool_choice: "required",
     };
+
+    // For OpenRouter, add HTTP_REFERER header requirement
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + apiKey,
+    };
+
+    if (this.selectedConnection.startsWith("openrouter")) {
+      headers["HTTP-Referer"] = window.location.href;
+    }
 
     // Use the body with placeholders for cache key generation
     const cacheId = await getCacheKey(endpoint, body);
     // Add a console log to better understand caching behavior
     console.log(
-      "Using model:",
-      this.selectedModel,
+      "Using connection:",
+      this.selectedConnection,
       "Text size:",
       eventText.length,
     );
@@ -493,8 +591,10 @@ ${event.notes || ""}</textarea
     if (cachedData) {
       console.log("Using cached extract events response");
       const message = cachedData.choices[0].message;
-      if (message.function_call && message.function_call.arguments) {
-        const functionArgs = JSON.parse(message.function_call.arguments);
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        const functionArgs = JSON.parse(
+          message.tool_calls[0].function.arguments,
+        );
         return functionArgs.events;
       }
       return [];
@@ -510,10 +610,7 @@ ${event.notes || ""}</textarea
 
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + apiKey,
-      },
+      headers: headers,
       body: JSON.stringify(requestBody),
     });
 
@@ -526,11 +623,10 @@ ${event.notes || ""}</textarea
 
     const message = data.choices[0].message;
 
-    if (message.function_call && message.function_call.arguments) {
-      const functionArgs = JSON.parse(message.function_call.arguments);
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      const functionArgs = JSON.parse(message.tool_calls[0].function.arguments);
       return functionArgs.events;
     }
-
     return [];
   }
 
