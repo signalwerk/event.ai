@@ -8,7 +8,6 @@ set -e
 # MODEL="mistralai/mistral-small-3.1-24b-instruct:free"
 # MODEL="mistralai/mistral-7b-instruct:free"
 MODEL="google/gemini-2.0-flash-exp:free"
-MAX_TOKENS=2200
 PROMPT_FILE="test5.md"
 
 # Check if prompt file or .env exists
