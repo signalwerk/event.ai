@@ -4,6 +4,73 @@ import {
   css,
 } from "https://cdn.jsdelivr.net/gh/lit/dist@3/core/lit-core.min.js";
 
+// Define a default model and provider
+const DEFAULT_PROVIDER = "openrouter";
+const DEFAULT_MODEL = "google/gemini-2.5-pro-exp-03-25";
+
+const ENDPOINTS = {
+  openai: "https://api.openai.com/v1/chat/completions",
+  openrouter: "https://openrouter.ai/api/v1/chat/completions",
+};
+
+// Connection options for the dropdown
+const CONNECTION_OPTIONS = [
+  {
+    provider: "openai",
+    model: "gpt-3.5-turbo",
+    label: "OpenAI - GPT-3.5 Turbo",
+    endpoint: ENDPOINTS.openai,
+  },
+  {
+    provider: "openai",
+    model: "gpt-4",
+    label: "OpenAI - GPT-4",
+    endpoint: ENDPOINTS.openai,
+  },
+  {
+    provider: "openai",
+    model: "gpt-4o-mini",
+    label: "OpenAI - GPT-4o Mini",
+    endpoint: ENDPOINTS.openai,
+  },
+  {
+    provider: "openai",
+    model: "gpt-4o",
+    label: "OpenAI - GPT-4o",
+    endpoint: ENDPOINTS.openai,
+  },
+  {
+    provider: "openrouter",
+    model: "google/gemini-2.5-pro-exp-03-25",
+    label: "OpenRouter - Gemini 2.5 Pro Experimental (1 request per min)",
+    endpoint: ENDPOINTS.openrouter,
+  },
+  {
+    provider: "openrouter",
+    model: "google/gemini-2.0-flash-exp:free",
+    label: "OpenRouter - Gemini 2.0 Flash Experimental (free)",
+    endpoint: ENDPOINTS.openrouter,
+  },
+  {
+    provider: "openrouter",
+    model: "mistralai/mistral-small-3.1-24b-instruct:free",
+    label: "OpenRouter - Mistral Small 3.1 24B Instruct (free)",
+    endpoint: ENDPOINTS.openrouter,
+  },
+  {
+    provider: "openrouter",
+    model: "mistralai/mistral-7b-instruct:free",
+    label: "OpenRouter - Mistral 7B Instruct (free)",
+    endpoint: ENDPOINTS.openrouter,
+  },
+  {
+    provider: "custom",
+    model: "",
+    label: "Custom API",
+    endpoint: "", // This will be set by the user
+  },
+];
+
 // Use a placeholder for the timestamp that will be replaced before making actual API calls
 const SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Don't change the language of the text. Today's date and time are {{$now}}.`;
 
@@ -198,6 +265,17 @@ class EventConverter extends LitElement {
         width: calc(50% - 0.5rem);
       }
     }
+
+    .error-message {
+      color: #e53935;
+      background-color: #ffebee;
+      border: 1px solid #ffcdd2;
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.7rem;
+    }
   `;
 
   static properties = {
@@ -210,25 +288,68 @@ class EventConverter extends LitElement {
     previewData: { type: Object },
     icsBlob: { type: Object },
     icsUrl: { type: String },
+    errorMessage: { type: String },
   };
 
   constructor() {
     super();
     this.apiKey = localStorage.getItem("openai_api_key") ?? "";
     this.eventText = localStorage.getItem("event_text") ?? "";
-    this.selectedConnection =
-      localStorage.getItem("selected_connection") ?? "openai-gpt-4";
+
+    const defaultOption =
+      CONNECTION_OPTIONS.find(
+        (option) =>
+          option.provider === DEFAULT_PROVIDER &&
+          option.model === DEFAULT_MODEL,
+      ) || CONNECTION_OPTIONS[0];
+
+    // Create the connection string in a consistent way
+    const defaultConnection = `${defaultOption.provider}-${defaultOption.model}`;
+
+    // Get connection from localStorage or use default
+    const storedConnection = localStorage.getItem("selected_connection");
+    this.selectedConnection = storedConnection ?? defaultConnection;
+
+    // If it's first startup, save this selection to localStorage
+    if (!storedConnection) {
+      localStorage.setItem("selected_connection", this.selectedConnection);
+    }
+
+    console.log("Default provider:", DEFAULT_PROVIDER);
+    console.log("Default model:", DEFAULT_MODEL);
+    console.log("Default option:", defaultOption);
+    console.log("Selected connection:", this.selectedConnection);
+
     this.customApiUrl =
-      localStorage.getItem("custom_api_url") ??
-      "https://api.openai.com/v1/chat/completions";
-    this.customModel = localStorage.getItem("custom_model") ?? "gpt-4";
+      localStorage.getItem("custom_api_url") ?? defaultOption.endpoint;
+    this.customModel =
+      localStorage.getItem("custom_model") ?? defaultOption.model;
     this.processing = false;
     this.previewData = null;
     this.icsBlob = null;
     this.icsUrl = "";
+    this.errorMessage = "";
   }
 
   render() {
+    // Debug available options
+    console.log(
+      "Available options:",
+      CONNECTION_OPTIONS.map((option) => ({
+        label: option.label,
+        value: option.provider + "-" + option.model,
+      })),
+    );
+    console.log("Currently selected:", this.selectedConnection);
+
+    // Check if the selectedConnection value exists in the options
+    const optionValues = CONNECTION_OPTIONS.map(
+      (option) => option.provider + "-" + option.model,
+    );
+    const isValidSelection = optionValues.includes(this.selectedConnection);
+    console.log("Is valid selection:", isValidSelection);
+    console.log("All option values:", optionValues);
+
     return html`
       <!-- API Key Input -->
       <h1>Event to ICS Converter</h1>
@@ -249,29 +370,24 @@ class EventConverter extends LitElement {
       <label for="connectionSelect">Select Connection</label>
       <select
         id="connectionSelect"
-        .value=${this.selectedConnection}
         @change=${this.handleConnectionChange}
+        .value=${this.selectedConnection}
       >
-        <option value="openai-gpt-3.5-turbo">OpenAI - GPT-3.5 Turbo</option>
-        <option value="openai-gpt-4">OpenAI - GPT-4</option>
-        <option value="openai-gpt-4o-mini">OpenAI - GPT-4o Mini</option>
-        <option value="openai-gpt-4o">OpenAI - GPT-4o</option>
-        <option value="openrouter-google/gemini-2.0-flash-exp:free">
-          OpenRouter - Gemini 2.0 Flash Experimental (free)
-        </option>
-        <option
-          value="openrouter-mistralai/mistral-small-3.1-24b-instruct:free"
-        >
-          OpenRouter - Mistral Small 3.1 24B Instruct (free)
-        </option>
-        <option value="openrouter-mistralai/mistral-7b-instruct:free">
-          OpenRouter - Mistral 7B Instruct (free)
-        </option>
-        <option value="custom">Custom API</option>
+        ${CONNECTION_OPTIONS.map((option) => {
+          const value = option.provider + "-" + option.model;
+          return html`
+            <option
+              value=${value}
+              ?selected=${this.selectedConnection === value}
+            >
+              ${option.label}
+            </option>
+          `;
+        })}
       </select>
 
       <!-- Custom API Options (conditionally displayed) -->
-      ${this.selectedConnection === "custom"
+      ${this.selectedConnection === "custom-"
         ? html`
             <label for="customApiUrl">Custom API URL</label>
             <input
@@ -319,6 +435,11 @@ class EventConverter extends LitElement {
         ? html`<div class="processing-label">Processing...</div>`
         : ""}
 
+      <!-- Error Message Display -->
+      ${this.errorMessage
+        ? html`<div class="error-message">${this.errorMessage}</div>`
+        : ""}
+
       <!-- Preview Area -->
       <div class="preview">${this.renderPreview()}</div>
 
@@ -338,20 +459,27 @@ class EventConverter extends LitElement {
     const previousConnection = this.selectedConnection;
     this.selectedConnection = e.target.value;
 
+    // Reset error message when connection changes
+    this.errorMessage = "";
+
     // If switching to custom, save the previous connection's endpoint and model
     if (
-      this.selectedConnection === "custom" &&
-      previousConnection !== "custom"
+      this.selectedConnection === "custom-" &&
+      previousConnection !== "custom-"
     ) {
-      let model, endpoint;
+      // Split previous connection into provider and model
+      const [provider, ...modelParts] = previousConnection.split("-");
+      // Decode the encoded model name
+      const encodedModel = modelParts.join("-"); // Rejoin in case model has dashes
+      const model = decodeURIComponent(encodedModel);
 
-      if (previousConnection.startsWith("openrouter")) {
-        endpoint = "https://openrouter.ai/api/v1/chat/completions";
-        model = previousConnection.replace("openrouter-", "");
-      } else {
-        endpoint = "https://api.openai.com/v1/chat/completions";
-        model = previousConnection.replace("openai-", "");
-      }
+      // Find the matching provider in CONNECTION_OPTIONS to get the endpoint
+      const matchingOption = CONNECTION_OPTIONS.find(
+        (option) => option.provider === provider,
+      );
+      const endpoint = matchingOption
+        ? matchingOption.endpoint
+        : ENDPOINTS.openai;
 
       this.customApiUrl = endpoint;
       this.customModel = model;
@@ -458,9 +586,12 @@ ${event.notes || ""}</textarea
     const eventText = this.eventText.trim();
 
     if (!apiKey || !eventText) {
-      alert("Please enter both API Key and Event Text.");
+      this.errorMessage = "Please enter both API Key and Event Text.";
       return;
     }
+
+    // Reset previous error
+    this.errorMessage = "";
 
     // Start processing
     this.processing = true;
@@ -471,16 +602,27 @@ ${event.notes || ""}</textarea
     try {
       // Extract events
       const eventsData = await this.extractEvents(apiKey, eventText);
+      console.log("Extracted events data:", eventsData);
 
       if (eventsData.length > 0) {
         // Use events data directly without grouping
         this.previewData = eventsData;
       } else {
-        alert("Failed to extract event information.");
+        this.errorMessage =
+          "Failed to extract event information. No events were found.";
       }
     } catch (error) {
       console.error("Error:", error);
-      alert("An error occurred: " + error.message);
+      this.errorMessage = `API Error: ${error.message}`;
+
+      // Add more detailed error information if available
+      if (error.details) {
+        this.errorMessage += `\n\nDetails: ${JSON.stringify(
+          error.details,
+          null,
+          2,
+        )}`;
+      }
     } finally {
       this.processing = false;
       this.requestUpdate();
@@ -491,15 +633,27 @@ ${event.notes || ""}</textarea
     // Get API endpoint and model based on selected connection
     let endpoint, model;
 
-    if (this.selectedConnection === "custom") {
+    // Get provider and model from selected connection
+    const [provider, ...modelParts] = this.selectedConnection.split("-");
+    const encodedModel = modelParts.join("-"); // Rejoin in case model has dashes
+    const modelName = decodeURIComponent(encodedModel); // Decode the model name
+
+    if (provider === "custom") {
       endpoint = this.customApiUrl;
       model = this.customModel;
-    } else if (this.selectedConnection.startsWith("openrouter")) {
-      endpoint = "https://openrouter.ai/api/v1/chat/completions";
-      model = this.selectedConnection.replace("openrouter-", "");
     } else {
-      endpoint = "https://api.openai.com/v1/chat/completions";
-      model = this.selectedConnection.replace("openai-", "");
+      const selectedOption = CONNECTION_OPTIONS.find(
+        (option) => option.provider === provider && option.model === modelName,
+      );
+
+      if (!selectedOption) {
+        throw new Error(
+          `Invalid connection selected: ${this.selectedConnection}`,
+        );
+      }
+
+      endpoint = selectedOption.endpoint;
+      model = modelName;
     }
 
     const body = {
@@ -574,7 +728,7 @@ ${event.notes || ""}</textarea
       Authorization: "Bearer " + apiKey,
     };
 
-    if (this.selectedConnection.startsWith("openrouter")) {
+    if (provider === "openrouter") {
       headers["HTTP-Referer"] = window.location.href;
       headers["X-Title"] = "Events labeling tool";
     }
@@ -593,7 +747,13 @@ ${event.notes || ""}</textarea
 
     if (cachedData) {
       console.log("Using cached extract events response");
+      if (cachedData.error) {
+        // If we stored an error response in the cache
+        throw new Error(cachedData.error.message || "Unknown error");
+      }
+
       const message = cachedData.choices[0].message;
+
       if (message.tool_calls && message.tool_calls.length > 0) {
         const functionArgs = JSON.parse(
           message.tool_calls[0].function.arguments,
@@ -617,11 +777,20 @@ ${event.notes || ""}</textarea
       body: JSON.stringify(requestBody),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // Store the error in the cache so we don't retry failing requests
+      setCachedResponse(cacheId, data);
+
+      // Throw a detailed error with the response data
+      const error = new Error(
+        data.error?.message || `HTTP error! status: ${response.status}`,
+      );
+      error.details = data.error;
+      throw error;
     }
 
-    const data = await response.json();
     setCachedResponse(cacheId, data);
 
     const message = data.choices[0].message;
