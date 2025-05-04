@@ -7,6 +7,7 @@ import {
 // Define a default model and provider
 const DEFAULT_PROVIDER = "openrouter";
 const DEFAULT_MODEL = "google/gemini-2.5-pro-exp-03-25";
+const MAX_TOKENS = 4096;
 
 const ENDPOINTS = {
   openai: "https://api.openai.com/v1/chat/completions",
@@ -181,6 +182,8 @@ class EventConverter extends LitElement {
 
     input[type="text"],
     input[type="password"],
+    input[type="datetime-local"],
+    input[type="date"],
     textarea,
     select {
       width: 100%;
@@ -289,12 +292,14 @@ class EventConverter extends LitElement {
     icsBlob: { type: Object },
     icsUrl: { type: String },
     errorMessage: { type: String },
+    timeZone: { type: String },
   };
 
   constructor() {
     super();
     this.apiKey = localStorage.getItem("openai_api_key") ?? "";
     this.eventText = localStorage.getItem("event_text") ?? "";
+    this.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
     const defaultOption =
       CONNECTION_OPTIONS.find(
@@ -511,6 +516,18 @@ class EventConverter extends LitElement {
   }
 
   renderEventGroup(event, eventIndex) {
+    // Convert the YYYYMMDDTHHMMSS format to YYYY-MM-DDTHH:MM format for datetime-local input
+    const startDatetime = event.startDate
+      ? this.formatForDatetimeLocal(event.startDate)
+      : this.formatForDatetimeLocal(event.start);
+    const endDatetime = event.endDate
+      ? this.formatForDatetimeLocal(event.endDate)
+      : this.formatForDatetimeLocal(event.end);
+
+    // Get just the date part for full-day events
+    const startDate = startDatetime ? startDatetime.split("T")[0] : "";
+    const endDate = endDatetime ? endDatetime.split("T")[0] : "";
+
     return html`
       <div class="column">
         <h3>Event ${eventIndex + 1}</h3>
@@ -526,20 +543,65 @@ class EventConverter extends LitElement {
         </div>
 
         <div class="row">
-          <label>Start</label>
+          <label for="event_${eventIndex}_fullday">Full-day Event</label>
           <input
-            type="text"
-            name="event_${eventIndex}_start"
-            .value=${event.start}
+            type="checkbox"
+            id="event_${eventIndex}_fullday"
+            name="event_${eventIndex}_fullday"
+            ?checked=${event.isFullDay}
+            @change=${(e) => this.toggleFullDayEvent(e, eventIndex)}
           />
         </div>
 
-        <div class="row">
+        <div
+          class="row event-${eventIndex}-datetime"
+          style=${event.isFullDay ? "display: none;" : ""}
+        >
+          <label>Start</label>
+          <input
+            type="datetime-local"
+            name="event_${eventIndex}_start_datetime"
+            id="event_${eventIndex}_start_datetime"
+            .value=${startDatetime}
+          />
+        </div>
+
+        <div
+          class="row event-${eventIndex}-datetime"
+          style=${event.isFullDay ? "display: none;" : ""}
+        >
           <label>End</label>
           <input
-            type="text"
-            name="event_${eventIndex}_end"
-            .value=${event.end}
+            type="datetime-local"
+            name="event_${eventIndex}_end_datetime"
+            id="event_${eventIndex}_end_datetime"
+            .value=${endDatetime}
+          />
+        </div>
+
+        <div
+          class="row event-${eventIndex}-fullday"
+          style=${event.isFullDay ? "" : "display: none;"}
+        >
+          <label>Start Date</label>
+          <input
+            type="date"
+            name="event_${eventIndex}_start_date"
+            id="event_${eventIndex}_start_date"
+            .value=${startDate}
+          />
+        </div>
+
+        <div
+          class="row event-${eventIndex}-fullday"
+          style=${event.isFullDay ? "" : "display: none;"}
+        >
+          <label>End Date</label>
+          <input
+            type="date"
+            name="event_${eventIndex}_end_date"
+            id="event_${eventIndex}_end_date"
+            .value=${endDate}
           />
         </div>
 
@@ -555,7 +617,6 @@ class EventConverter extends LitElement {
         <div class="row">
           <label>Place</label>
           <textarea
-            type="text"
             name="event_${eventIndex}_place"
             rows="4"
             .value=${event.place || ""}
@@ -579,6 +640,88 @@ ${event.notes || ""}</textarea
         </div>
       </div>
     `;
+  }
+
+  toggleFullDayEvent(e, eventIndex) {
+    const isFullDay = e.target.checked;
+    const datetimeFields = this.shadowRoot.querySelectorAll(
+      `.event-${eventIndex}-datetime`,
+    );
+    const fulldayFields = this.shadowRoot.querySelectorAll(
+      `.event-${eventIndex}-fullday`,
+    );
+
+    datetimeFields.forEach((field) => {
+      field.style.display = isFullDay ? "none" : "block";
+    });
+
+    fulldayFields.forEach((field) => {
+      field.style.display = isFullDay ? "block" : "none";
+    });
+  }
+
+  sanitizeDate(dateStr) {
+    // Remove any non-digit characters except 'T'
+    let sanitized = dateStr.replace(/[^\dT]/g, "");
+
+    // Ensure 'T' is present between date and time
+    if (!sanitized.includes("T")) {
+      // Insert 'T' at the correct position
+      sanitized = sanitized.substring(0, 8) + "T" + sanitized.substring(8);
+    }
+
+    // Ensure the string is in 'YYYYMMDDTHHMMSS' format
+    const dateTimeRegex = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/;
+    const match = sanitized.match(dateTimeRegex);
+
+    if (match) {
+      // Valid format
+      return sanitized;
+    } else {
+      // Attempt to fix common issues
+      const digitsOnly = sanitized.replace(/T/g, "");
+      if (digitsOnly.length >= 14) {
+        sanitized =
+          digitsOnly.substring(0, 8) + "T" + digitsOnly.substring(8, 14);
+      } else {
+        sanitized = digitsOnly.padEnd(14, "0");
+        sanitized =
+          sanitized.substring(0, 8) + "T" + sanitized.substring(8, 14);
+      }
+      return sanitized;
+    }
+  }
+
+  formatForDatetimeLocal(datetimeInput) {
+    // If it's already a Date object, format it directly
+    if (datetimeInput instanceof Date) {
+      if (isNaN(datetimeInput.getTime())) return "";
+
+      const pad = (n) => (n < 10 ? "0" + n : n);
+      return `${datetimeInput.getFullYear()}-${pad(
+        datetimeInput.getMonth() + 1,
+      )}-${pad(datetimeInput.getDate())}T${pad(datetimeInput.getHours())}:${pad(
+        datetimeInput.getMinutes(),
+      )}`;
+    }
+
+    // Otherwise, handle it as a string
+    if (!datetimeInput || typeof datetimeInput !== "string") return "";
+
+    // Parse YYYYMMDDTHHMMSS format to YYYY-MM-DDTHH:MM
+    const match = datetimeInput.match(
+      /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/,
+    );
+    if (match) {
+      const [_, year, month, day, hours, minutes] = match;
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    } else {
+      console.error(
+        `Error parsing date ${datetimeInput} is not in the expected format (YYYYMMDDTHHMMSS)`,
+      );
+    }
+
+    return "";
   }
 
   async extractEventsFromText() {
@@ -658,6 +801,7 @@ ${event.notes || ""}</textarea
 
     const body = {
       model: model,
+      max_tokens: MAX_TOKENS,
       messages: [
         {
           role: "system",
@@ -758,7 +902,7 @@ ${event.notes || ""}</textarea
         const functionArgs = JSON.parse(
           message.tool_calls[0].function.arguments,
         );
-        return functionArgs.events;
+        return this.normalizeEvents(functionArgs.events);
       }
       return [];
     }
@@ -797,9 +941,85 @@ ${event.notes || ""}</textarea
 
     if (message.tool_calls && message.tool_calls.length > 0) {
       const functionArgs = JSON.parse(message.tool_calls[0].function.arguments);
-      return functionArgs.events;
+      return this.normalizeEvents(functionArgs.events);
     }
     return [];
+  }
+
+  normalizeEvents(events) {
+    return events.map((event) => {
+      const normalizedEvent = { ...event };
+
+      // Convert date strings to Date objects
+      if (event.start) {
+        // First sanitize the string format
+        const startStr = this.sanitizeDate(event.start);
+        // Parse YYYYMMDDTHHMMSS to Date object
+        const match = startStr.match(
+          /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/,
+        );
+        if (match) {
+          const [_, year, month, day, hours, minutes, seconds] = match;
+          normalizedEvent.startDate = new Date(
+            parseInt(year),
+            parseInt(month) - 1, // month is 0-indexed in JS Date
+            parseInt(day),
+            parseInt(hours),
+            parseInt(minutes),
+            parseInt(seconds),
+          );
+          // Keep the original string format for compatibility
+          normalizedEvent.start = startStr;
+        }
+      }
+
+      if (event.end) {
+        // First sanitize the string format
+        const endStr = this.sanitizeDate(event.end);
+        // Parse YYYYMMDDTHHMMSS to Date object
+        const match = endStr.match(
+          /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/,
+        );
+        if (match) {
+          const [_, year, month, day, hours, minutes, seconds] = match;
+          normalizedEvent.endDate = new Date(
+            parseInt(year),
+            parseInt(month) - 1, // month is 0-indexed in JS Date
+            parseInt(day),
+            parseInt(hours),
+            parseInt(minutes),
+            parseInt(seconds),
+          );
+          // Keep the original string format for compatibility
+          normalizedEvent.end = endStr;
+        }
+      }
+
+      // Detect full-day events (starts at 00:00 and ends at 23:59 on the same or different day)
+      if (normalizedEvent.startDate && normalizedEvent.endDate) {
+        const startHours = normalizedEvent.startDate.getHours();
+        const startMinutes = normalizedEvent.startDate.getMinutes();
+        const startSeconds = normalizedEvent.startDate.getSeconds();
+
+        const endHours = normalizedEvent.endDate.getHours();
+        const endMinutes = normalizedEvent.endDate.getMinutes();
+        const endSeconds = normalizedEvent.endDate.getSeconds();
+
+        // If event starts at 00:00:00 and ends at 23:59:00 or 23:59:59, mark it as full day
+        if (
+          startHours === 0 &&
+          startMinutes === 0 &&
+          startSeconds === 0 &&
+          endHours === 23 &&
+          endMinutes === 59 &&
+          (endSeconds === 0 || endSeconds === 59)
+        ) {
+          normalizedEvent.isFullDay = true;
+        }
+      }
+
+      return normalizedEvent;
+    });
   }
 
   generateICSFile() {
@@ -826,13 +1046,52 @@ ${event.notes || ""}</textarea
         eventData[field] = formData.get(`event_${eventIndex}_${field}`) || "";
       });
 
-      // Start and End times
-      eventData["start"] = this.sanitizeDate(
-        formData.get(`event_${eventIndex}_start`) || "",
-      );
-      eventData["end"] = this.sanitizeDate(
-        formData.get(`event_${eventIndex}_end`) || "",
-      );
+      // Check if it's a full-day event
+      const isFullDay = formData.get(`event_${eventIndex}_fullday`) === "on";
+      eventData["isFullDay"] = isFullDay;
+
+      if (isFullDay) {
+        // Get date values for full-day events
+        const startDateStr =
+          formData.get(`event_${eventIndex}_start_date`) || "";
+        const endDateStr = formData.get(`event_${eventIndex}_end_date`) || "";
+
+        if (startDateStr) {
+          const [year, month, day] = startDateStr.split("-").map(Number);
+          eventData.startDate = new Date(year, month - 1, day, 0, 0, 0);
+          // Also keep string format for backward compatibility
+          eventData.start = this.formatFullDayDate(startDateStr);
+        }
+
+        if (endDateStr) {
+          const [year, month, day] = endDateStr.split("-").map(Number);
+          // For end dates in all-day events, we set to end of day (23:59:59)
+          // but when generating ICS we'll add 1 day per iCalendar spec
+          eventData.endDate = new Date(year, month - 1, day, 23, 59, 59);
+          // Also keep string format for backward compatibility
+          eventData.end = this.formatFullDayDate(endDateStr, true);
+        }
+      } else {
+        // Get datetime values for regular events
+        const startDatetimeStr =
+          formData.get(`event_${eventIndex}_start_datetime`) || "";
+        const endDatetimeStr =
+          formData.get(`event_${eventIndex}_end_datetime`) || "";
+
+        if (startDatetimeStr) {
+          const startDate = new Date(startDatetimeStr);
+          eventData.startDate = startDate;
+          // Also keep string format for backward compatibility
+          eventData.start = this.formatDateTime(startDate);
+        }
+
+        if (endDatetimeStr) {
+          const endDate = new Date(endDatetimeStr);
+          eventData.endDate = endDate;
+          // Also keep string format for backward compatibility
+          eventData.end = this.formatDateTime(endDate);
+        }
+      }
 
       events.push(eventData);
     });
@@ -852,59 +1111,129 @@ ${event.notes || ""}</textarea
     this.requestUpdate();
   }
 
-  sanitizeDate(dateStr) {
-    // Remove any non-digit characters except 'T'
-    let sanitized = dateStr.replace(/[^\dT]/g, "");
-
-    // Ensure 'T' is present between date and time
-    if (!sanitized.includes("T")) {
-      // Insert 'T' at the correct position
-      sanitized = sanitized.substring(0, 8) + "T" + sanitized.substring(8);
+  formatDatetimeToICS(input) {
+    // If it's a Date object, format it directly
+    if (input instanceof Date) {
+      if (isNaN(input.getTime())) return "";
+      return this.formatDateTime(input);
     }
 
-    // Ensure the string is in 'YYYYMMDDTHHMMSS' format
-    const dateTimeRegex = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/;
-    const match = sanitized.match(dateTimeRegex);
+    // Convert HTML datetime-local format (YYYY-MM-DDTHH:MM) to YYYYMMDDTHHMMSS
+    if (!input || typeof input !== "string") return "";
 
-    if (match) {
-      // Valid format
-      return sanitized;
-    } else {
-      // Attempt to fix common issues
-      const digitsOnly = sanitized.replace(/T/g, "");
-      if (digitsOnly.length >= 14) {
-        sanitized =
-          digitsOnly.substring(0, 8) + "T" + digitsOnly.substring(8, 14);
-      } else {
-        sanitized = digitsOnly.padEnd(14, "0");
-        sanitized =
-          sanitized.substring(0, 8) + "T" + sanitized.substring(8, 14);
+    const date = new Date(input);
+    if (isNaN(date.getTime())) return "";
+
+    return this.formatDateTime(date);
+  }
+
+  formatFullDayDate(dateInput, isEndDate = false) {
+    // If it's a Date object, format it directly
+    if (dateInput instanceof Date) {
+      if (isNaN(dateInput.getTime())) return "";
+
+      let date = new Date(dateInput);
+      // For end dates in all-day events, add 1 day per iCalendar spec
+      if (isEndDate) {
+        date.setDate(date.getDate() + 1);
       }
-      return sanitized;
+
+      return (
+        date.getFullYear().toString() +
+        String(date.getMonth() + 1).padStart(2, "0") +
+        String(date.getDate()).padStart(2, "0")
+      );
     }
+
+    // Otherwise handle it as a string
+    if (!dateInput || typeof dateInput !== "string") return "";
+
+    // Parse the date string (YYYY-MM-DD)
+    const [year, month, day] = dateInput.split("-").map(Number);
+
+    // For end dates in all-day events, add 1 day per iCalendar spec
+    if (isEndDate) {
+      const endDate = new Date(year, month - 1, day);
+      endDate.setDate(endDate.getDate() + 1);
+      return (
+        endDate.getFullYear().toString() +
+        String(endDate.getMonth() + 1).padStart(2, "0") +
+        String(endDate.getDate()).padStart(2, "0")
+      );
+    }
+
+    // Format as YYYYMMDD for start date
+    return (
+      year.toString() +
+      String(month).padStart(2, "0") +
+      String(day).padStart(2, "0")
+    );
   }
 
   generateICS(events) {
     const lines = [];
     lines.push("BEGIN:VCALENDAR");
     lines.push("VERSION:2.0");
+    lines.push("PRODID:-//Your Organization//Event to ICS Converter//EN");
+    lines.push("CALSCALE:GREGORIAN");
 
     // Include timezone information
-    const tzid = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-
-    lines.push("PRODID:-//Your Organization//Event to ICS Converter//EN");
+    const tzid = this.timeZone;
 
     events.forEach((event) => {
       lines.push("BEGIN:VEVENT");
       lines.push("UID:" + this.generateUID());
       lines.push("DTSTAMP:" + this.formatDateTime(new Date()));
 
-      if (event.start) {
-        lines.push("DTSTART;TZID=" + tzid + ":" + event.start);
+      if (event.startDate) {
+        if (event.isFullDay) {
+          // For full-day events, use VALUE=DATE format without time or timezone
+          const dateStr =
+            event.startDate.getFullYear().toString() +
+            String(event.startDate.getMonth() + 1).padStart(2, "0") +
+            String(event.startDate.getDate()).padStart(2, "0");
+          lines.push("DTSTART;VALUE=DATE:" + dateStr);
+        } else {
+          lines.push(
+            "DTSTART;TZID=" + tzid + ":" + this.formatDateTime(event.startDate),
+          );
+        }
+      } else if (event.start) {
+        // Fallback to string if Date object is not available
+        if (event.isFullDay) {
+          // For full-day events, use VALUE=DATE format without time or timezone
+          lines.push("DTSTART;VALUE=DATE:" + event.start.substring(0, 8));
+        } else {
+          lines.push("DTSTART;TZID=" + tzid + ":" + event.start);
+        }
       }
-      if (event.end) {
-        lines.push("DTEND;TZID=" + tzid + ":" + event.end);
+
+      if (event.endDate) {
+        if (event.isFullDay) {
+          // For full-day events, use VALUE=DATE format without time or timezone
+          // For end dates, add 1 day per iCalendar spec
+          const endDate = new Date(event.endDate);
+          endDate.setDate(endDate.getDate() + 1);
+          const dateStr =
+            endDate.getFullYear().toString() +
+            String(endDate.getMonth() + 1).padStart(2, "0") +
+            String(endDate.getDate()).padStart(2, "0");
+          lines.push("DTEND;VALUE=DATE:" + dateStr);
+        } else {
+          lines.push(
+            "DTEND;TZID=" + tzid + ":" + this.formatDateTime(event.endDate),
+          );
+        }
+      } else if (event.end) {
+        // Fallback to string if Date object is not available
+        if (event.isFullDay) {
+          // For full-day events, use VALUE=DATE format without time or timezone
+          lines.push("DTEND;VALUE=DATE:" + event.end.substring(0, 8));
+        } else {
+          lines.push("DTEND;TZID=" + tzid + ":" + event.end);
+        }
       }
+
       if (event.title) {
         lines.push("SUMMARY:" + this.escapeICSText(event.title));
       }
