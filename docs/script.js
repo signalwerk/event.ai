@@ -21,59 +21,98 @@ const CONNECTION_OPTIONS = [
     model: "gpt-3.5-turbo",
     label: "OpenAI - GPT-3.5 Turbo",
     endpoint: ENDPOINTS.openai,
+    capabilities: ["tools"],
   },
   {
     provider: "openai",
     model: "gpt-4",
     label: "OpenAI - GPT-4",
     endpoint: ENDPOINTS.openai,
+    capabilities: ["tools"],
   },
   {
     provider: "openai",
     model: "gpt-4o-mini",
     label: "OpenAI - GPT-4o Mini",
     endpoint: ENDPOINTS.openai,
+    capabilities: ["tools"],
   },
   {
     provider: "openai",
     model: "gpt-4o",
     label: "OpenAI - GPT-4o",
     endpoint: ENDPOINTS.openai,
+    capabilities: ["tools"],
   },
   {
     provider: "openrouter",
     model: "google/gemini-2.5-pro-exp-03-25",
-    label: "OpenRouter - Gemini 2.5 Pro Experimental (1 request per min)",
+    label:
+      "OpenRouter - Gemini 2.5 Pro Experimental (1 request per min) – tools",
     endpoint: ENDPOINTS.openrouter,
+    capabilities: ["tools"],
   },
   {
     provider: "openrouter",
     model: "google/gemini-2.0-flash-exp:free",
     label: "OpenRouter - Gemini 2.0 Flash Experimental (free)",
     endpoint: ENDPOINTS.openrouter,
+    capabilities: [],
   },
   {
     provider: "openrouter",
     model: "mistralai/mistral-small-3.1-24b-instruct:free",
     label: "OpenRouter - Mistral Small 3.1 24B Instruct (free)",
     endpoint: ENDPOINTS.openrouter,
+    capabilities: [],
   },
   {
     provider: "openrouter",
     model: "mistralai/mistral-7b-instruct:free",
-    label: "OpenRouter - Mistral 7B Instruct (free)",
+    label: "OpenRouter - Mistral 7B Instruct (free) – tools",
     endpoint: ENDPOINTS.openrouter,
+    capabilities: ["tools"],
   },
   {
     provider: "custom",
     model: "",
     label: "Custom API",
     endpoint: "", // This will be set by the user
+    capabilities: ["tools"], // Assume custom API supports tools by default
   },
 ];
 
 // Use a placeholder for the timestamp that will be replaced before making actual API calls
 const SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Don't change the language of the text. Today's date and time are {{$now}}.`;
+
+const FIELD_DESCRIPTIONS = {
+  title:
+    "Title of the event. Never include 'event' in the title. It is redundant. Also, the title should be short and descriptive. Don't include the date or time or location in the title.",
+  start:
+    "Event start date and time in YYYYMMDDTHHMMSS format. If the event is a full-day event, use 000000 as the time.",
+  end: "Event end date and time in YYYYMMDDTHHMMSS format. If the event is a full-day event, use 235900 as the time.",
+  place: "Location name and address of the event. Newline separated.",
+  url: "Event or location URL",
+  notes:
+    "Additional notes about the event or additional information and details. Additional URLs, contact information, etc.",
+};
+
+// Alternative prompt for models without tool support
+const JSON_SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all events found in the text as a valid JSON array without additional text or explanation. The structure of the JSON array must be:
+{
+  "events": [
+    {
+      "title": ${FIELD_DESCRIPTIONS.title},
+      "start": ${FIELD_DESCRIPTIONS.start},
+      "end": ${FIELD_DESCRIPTIONS.end},
+      "place": ${FIELD_DESCRIPTIONS.place},
+      "url": ${FIELD_DESCRIPTIONS.url},
+      "notes": ${FIELD_DESCRIPTIONS.notes}
+    },
+    ...next event
+  ]
+}
+Today's date and time are {{$now}}.`;
 
 // Check if the current hostname is localhost
 const isLocalhost =
@@ -138,6 +177,46 @@ const setCachedResponse = (key, data) => {
     console.error("Cache storage error:", error);
   }
 };
+
+// Abstract function to extract events data from API response message
+function extractEventsFromMessage(message, supportsTools) {
+  if (supportsTools && message.tool_calls && message.tool_calls.length > 0) {
+    // Extract data from tool_calls for models that support tools
+    const functionArgs = JSON.parse(message.tool_calls[0].function.arguments);
+    return functionArgs.events;
+  } else {
+    // Extract data from content for models without tool support
+    try {
+      // Try to parse the content as JSON
+      let eventsData;
+      if (typeof message.content === "string") {
+        // First try parsing the whole content
+        try {
+          eventsData = JSON.parse(message.content);
+        } catch (e) {
+          // If that fails, try to extract a JSON array/object from the text
+          const jsonMatch = message.content.match(/(\{|\[)[\s\S]*(\}|\])/);
+          if (jsonMatch) {
+            eventsData = JSON.parse(jsonMatch[0]);
+          } else {
+            throw e; // Re-throw if no JSON found
+          }
+        }
+      } else {
+        eventsData = message.content;
+      }
+
+      // Handle both array format and {events: []} format
+      const events = Array.isArray(eventsData) ? eventsData : eventsData.events;
+      if (Array.isArray(events)) {
+        return events;
+      }
+    } catch (e) {
+      console.error("Failed to parse JSON from model response:", e);
+    }
+    return [];
+  }
+}
 
 class EventConverter extends LitElement {
   static styles = css`
@@ -278,6 +357,7 @@ class EventConverter extends LitElement {
       border-radius: 4px;
       font-family: monospace;
       font-size: 0.7rem;
+      white-space: pre-wrap;
     }
   `;
 
@@ -416,6 +496,23 @@ class EventConverter extends LitElement {
               }}
               placeholder="Enter model name (e.g., gpt-4)"
             />
+            <div class="row">
+              <label for="customSupportsTools"
+                >Model Supports Tools/Functions</label
+              >
+              <input
+                type="checkbox"
+                id="customSupportsTools"
+                ?checked=${localStorage.getItem("custom_supports_tools") !==
+                "false"}
+                @change=${(e) => {
+                  localStorage.setItem(
+                    "custom_supports_tools",
+                    e.target.checked,
+                  );
+                }}
+              />
+            </div>
           `
         : ""}
 
@@ -766,6 +863,20 @@ ${event.notes || ""}</textarea
           2,
         )}`;
       }
+
+      if (error.metadata?.raw) {
+        // try to parse the raw error message as JSON
+        try {
+          const rawError = JSON.parse(error.metadata.raw);
+          this.errorMessage += `\n\nRaw Error: ${JSON.stringify(
+            rawError,
+            null,
+            2,
+          )}`;
+        } catch (e) {
+          this.errorMessage += `\n\nRaw Error: ${error.metadata.raw}`;
+        }
+      }
     } finally {
       this.processing = false;
       this.requestUpdate();
@@ -774,7 +885,7 @@ ${event.notes || ""}</textarea
 
   async extractEvents(apiKey, eventText) {
     // Get API endpoint and model based on selected connection
-    let endpoint, model;
+    let endpoint, model, supportsTools;
 
     // Get provider and model from selected connection
     const [provider, ...modelParts] = this.selectedConnection.split("-");
@@ -784,6 +895,8 @@ ${event.notes || ""}</textarea
     if (provider === "custom") {
       endpoint = this.customApiUrl;
       model = this.customModel;
+      // Get tools support setting from localStorage or default to true
+      supportsTools = localStorage.getItem("custom_supports_tools") !== "false";
     } else {
       const selectedOption = CONNECTION_OPTIONS.find(
         (option) => option.provider === provider && option.model === modelName,
@@ -797,74 +910,90 @@ ${event.notes || ""}</textarea
 
       endpoint = selectedOption.endpoint;
       model = modelName;
+      supportsTools = selectedOption.capabilities.includes("tools");
     }
 
-    const body = {
-      model: model,
-      max_tokens: MAX_TOKENS,
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        { role: "user", content: eventText },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "extract_events_info",
-            description:
-              "Extracts multiple events information from text and returns them as structured data.",
-            parameters: {
-              type: "object",
-              properties: {
-                events: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      title: {
-                        type: "string",
-                        description:
-                          "Title of the event. Never include 'event' in the title. It is redundant. Also, the title should be short and descriptive. Don't include the date or time or location in the title.",
+    // Prepare body based on model capabilities
+    let body;
+
+    if (supportsTools) {
+      // Use tools for models that support them
+      body = {
+        model: model,
+        max_tokens: MAX_TOKENS,
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+          { role: "user", content: eventText },
+        ],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "extract_events_info",
+              description:
+                "Extracts multiple events information from text and returns them as structured data.",
+              parameters: {
+                type: "object",
+                properties: {
+                  events: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        title: {
+                          type: "string",
+                          description: FIELD_DESCRIPTIONS.title,
+                        },
+                        start: {
+                          type: "string",
+                          description: FIELD_DESCRIPTIONS.start,
+                        },
+                        end: {
+                          type: "string",
+                          description: FIELD_DESCRIPTIONS.end,
+                        },
+                        place: {
+                          type: "string",
+                          description: FIELD_DESCRIPTIONS.place,
+                        },
+                        url: {
+                          type: "string",
+                          description: FIELD_DESCRIPTIONS.url,
+                        },
+                        notes: {
+                          type: "string",
+                          description: FIELD_DESCRIPTIONS.notes,
+                        },
                       },
-                      start: {
-                        type: "string",
-                        description:
-                          "Event start date and time in YYYYMMDDTHHMMSS format",
-                      },
-                      end: {
-                        type: "string",
-                        description:
-                          "Event end date and time in YYYYMMDDTHHMMSS format",
-                      },
-                      place: {
-                        type: "string",
-                        description:
-                          "Location of the event. Name of the location and address. Newline separated.",
-                      },
-                      url: {
-                        type: "string",
-                        description: "URL of the event or the location.",
-                      },
-                      notes: {
-                        type: "string",
-                        description:
-                          "Additional notes about the event or additional information and details. Additional URLs, contact information, etc.",
-                      },
+                      required: ["title", "start", "end"],
                     },
-                    required: ["title", "start", "end"],
                   },
                 },
+                required: ["events"],
               },
-              required: ["events"],
             },
           },
-        },
-      ],
-      tool_choice: "required",
-    };
+        ],
+        tool_choice: "required",
+      };
+    } else {
+      // Use JSON response format for models without tool support
+      body = {
+        model: model,
+        max_tokens: MAX_TOKENS,
+        messages: [
+          {
+            role: "system",
+            content: JSON_SYSTEM_PROMPT,
+          },
+          { role: "user", content: eventText },
+        ],
+        response_format: { type: "json_object" }, // Request JSON response if supported
+      };
+    }
 
     // For OpenRouter, add HTTP_REFERER header requirement
     const headers = {
@@ -897,23 +1026,23 @@ ${event.notes || ""}</textarea
       }
 
       const message = cachedData.choices[0].message;
-
-      if (message.tool_calls && message.tool_calls.length > 0) {
-        const functionArgs = JSON.parse(
-          message.tool_calls[0].function.arguments,
-        );
-        return this.normalizeEvents(functionArgs.events);
-      }
-      return [];
+      const events = extractEventsFromMessage(message, supportsTools);
+      return this.normalizeEvents(events);
     }
 
     console.log("Making fresh API call for event extraction");
 
     // Create a deep copy of the request body and replace placeholders
     const requestBody = JSON.parse(JSON.stringify(body));
-    requestBody.messages[0].content = replacePlaceholders(
-      requestBody.messages[0].content,
-    );
+    if (supportsTools) {
+      requestBody.messages[0].content = replacePlaceholders(
+        requestBody.messages[0].content,
+      );
+    } else {
+      requestBody.messages[0].content = replacePlaceholders(
+        requestBody.messages[0].content,
+      );
+    }
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -923,7 +1052,7 @@ ${event.notes || ""}</textarea
 
     const data = await response.json();
 
-    if (!response.ok) {
+    if (!response.ok || data.error) {
       // Store the error in the cache so we don't retry failing requests
       setCachedResponse(cacheId, data);
 
@@ -938,12 +1067,8 @@ ${event.notes || ""}</textarea
     setCachedResponse(cacheId, data);
 
     const message = data.choices[0].message;
-
-    if (message.tool_calls && message.tool_calls.length > 0) {
-      const functionArgs = JSON.parse(message.tool_calls[0].function.arguments);
-      return this.normalizeEvents(functionArgs.events);
-    }
-    return [];
+    const events = extractEventsFromMessage(message, supportsTools);
+    return this.normalizeEvents(events);
   }
 
   normalizeEvents(events) {
