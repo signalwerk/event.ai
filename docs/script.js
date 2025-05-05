@@ -186,64 +186,68 @@ const setCachedResponse = (key, data) => {
 };
 
 /**
- * Escapes all invalid back-slash sequences so the string becomes valid JSON.
- *   - leaves \" \\ \/ \b \f \n \r \t \uXXXX untouched
- *   - every other  \X  →  \\X
- */
-function sanitizeJsonString(raw) {
-  return raw.replace(
-    /\\(?!["\\\/bfnrtu])/g, // “negative look-ahead” – back-slash NOT followed by a legal escape
-    "\\\\", // add one more back-slash
-  );
-}
-
-/**
- * Extract an `events` array from an LLM message – even when the JSON is
- * wrapped in Markdown fences **and** contains stray back-slashes.
+ * Extract an `events` (or `event`) array from an LLM message.
+ *
+ *  ▸ Handles tool-call messages (function-calling models).
+ *  ▸ Works when JSON is wrapped in Markdown fences or preceded by prose.
+ *  ▸ Repairs illegal back-slash escapes (\Z → \\Z).
+ *  ▸ If the **first** parse attempt fails it looks for the first ``` fence
+ *    and retries with everything that follows it.
  */
 function extractEventsFromMessage(message, supportsTools = false) {
-  // ---------- tool-call branch ----------
+  /* ─────────────── tool-call branch ─────────────── */
   if (supportsTools && message.tool_calls?.length) {
-    const args = JSON.parse(message.tool_calls[0].function.arguments);
-    return args.events ?? [];
+    try {
+      const args = JSON.parse(message.tool_calls[0].function.arguments);
+      return Array.isArray(args.events) ? args.events : [];
+    } catch {
+      return [];
+    }
   }
 
-  // ---------- plain-text / code-fence branch ----------
+  /* ─────────────── plain-text / code-fence branch ─────────────── */
   const raw =
     typeof message.content === "string"
       ? message.content
       : String(message.content);
 
-  /* 1. strip a leading   ```json   (or ``` plus optional “json”) and a
-        trailing ``` fence – they may or may not be there. */
-  const withoutFences = raw
-    .replace(/^\s*```(?:json)?\s*/i, "")
-    .replace(/\s*```\s*$/, "");
+  /* helper that does “strip-fence → find JSON → sanitise → parse” */
+  function tryParse(str) {
+    // remove *leading* ```json (or ```lang) and trailing ```
+    const withoutFences = str
+      .replace(/^\s*```[^\n]*\n?/i, "") // opening fence
+      .replace(/\n?```\s*$/, ""); // closing fence
 
-  /* 2. capture the first JSON object or array. */
-  const jsonMatch = withoutFences.match(/(\{|\[)[\s\S]*(\}|\])/m);
+    // grab the *first* {...} or [...] block
+    const jsonMatch = withoutFences.match(/(\{|\[)[\s\S]*(\}|\])/m);
+    if (!jsonMatch) return null;
+    let jsonString = jsonMatch[0];
 
-  if (!jsonMatch) return [];
+    // repair illegal back-slash escapes
+    jsonString = jsonString.replace(/\\(?!["\\\/bfnrtu])/g, "\\\\");
 
-  let jsonString = jsonMatch[0];
-
-  /* 3. repair illegal back-slash escapes.
-        keep \" \\ \/ \b \f \n \r \t \uXXXX intact,
-        double-escape every other  \X  →  \\X                     */
-  jsonString = jsonString.replace(/\\(?!["\\\/bfnrtu])/g, "\\\\");
-
-  console.log("Sanitised JSON string:", jsonString);
-
-  /* 4. parse safely */
-  let data;
-  try {
-    data = JSON.parse(jsonString);
-  } catch (e) {
-    console.error("JSON.parse failed even after sanitising:", e);
-    return [];
+    // parse – return null on failure
+    try {
+      return JSON.parse(jsonString);
+    } catch {
+      return null;
+    }
   }
 
-  /* 5. normalise return value */
+  /* first attempt: run on the whole message */
+  let data = tryParse(raw);
+
+  /* second attempt: if failed, cut everything before the first fence
+     (inclusive) and try again */
+  if (!data) {
+    const idx = raw.indexOf("```");
+    if (idx !== -1) {
+      data = tryParse(raw.slice(idx));
+    }
+  }
+
+  // normalise return value
+  if (!data) return [];
   if (Array.isArray(data)) return data;
   if (Array.isArray(data.events)) return data.events;
   if (Array.isArray(data.event)) return data.event;
