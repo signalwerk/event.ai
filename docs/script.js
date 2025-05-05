@@ -68,17 +68,17 @@ const CONNECTION_OPTIONS = [
   },
   {
     provider: "openrouter",
-    model: "deepseek/deepseek-chat-v3-0324:free",
-    label: "DeepSeek - DeepSeek Chat V3 (free)",
-    endpoint: ENDPOINTS.openrouter,
-    capabilities: [],
-  },
-  {
-    provider: "openrouter",
     model: "mistralai/mistral-7b-instruct:free",
     label: "OpenRouter - Mistral 7B Instruct (free) – tools",
     endpoint: ENDPOINTS.openrouter,
     capabilities: ["tools"],
+  },
+  {
+    provider: "openrouter",
+    model: "deepseek/deepseek-chat-v3-0324:free",
+    label: "DeepSeek - DeepSeek Chat V3 (free)",
+    endpoint: ENDPOINTS.openrouter,
+    capabilities: [],
   },
   {
     provider: "custom",
@@ -185,49 +185,69 @@ const setCachedResponse = (key, data) => {
   }
 };
 
-// Abstract function to extract events data from API response message
-function extractEventsFromMessage(message, supportsTools) {
-  if (supportsTools && message.tool_calls && message.tool_calls.length > 0) {
-    // Extract data from tool_calls for models that support tools
-    const functionArgs = JSON.parse(message.tool_calls[0].function.arguments);
-    return functionArgs.events;
-  } else {
-    // Extract data from content for models without tool support
-    try {
-      // Try to parse the content as JSON
-      let eventsData;
-      if (typeof message.content === "string") {
-        // First try parsing the whole content
-        try {
-          eventsData = JSON.parse(message.content);
-        } catch (e) {
-          // If that fails, try to extract a JSON array/object from the text
-          const jsonMatch = message.content.match(/(\{|\[)[\s\S]*(\}|\])/);
-          if (jsonMatch) {
-            eventsData = JSON.parse(jsonMatch[0]);
-          } else {
-            throw e; // Re-throw if no JSON found
-          }
-        }
-      } else {
-        eventsData = message.content;
-      }
+/**
+ * Escapes all invalid back-slash sequences so the string becomes valid JSON.
+ *   - leaves \" \\ \/ \b \f \n \r \t \uXXXX untouched
+ *   - every other  \X  →  \\X
+ */
+function sanitizeJsonString(raw) {
+  return raw.replace(
+    /\\(?!["\\\/bfnrtu])/g, // “negative look-ahead” – back-slash NOT followed by a legal escape
+    "\\\\", // add one more back-slash
+  );
+}
 
-      // Handle both array format and {events: []} format
-      const events = Array.isArray(eventsData) ? eventsData : eventsData.events;
-      if (Array.isArray(events)) {
-        return events;
-      }
-      // wrong naming but let's try to get the events from the event property
-      const event = Array.isArray(eventsData) ? eventsData : eventsData.event;
-      if (Array.isArray(event)) {
-        return event;
-      }
-    } catch (e) {
-      console.error("Failed to parse JSON from model response:", e);
-    }
+/**
+ * Extract an `events` array from an LLM message – even when the JSON is
+ * wrapped in Markdown fences **and** contains stray back-slashes.
+ */
+function extractEventsFromMessage(message, supportsTools = false) {
+  // ---------- tool-call branch ----------
+  if (supportsTools && message.tool_calls?.length) {
+    const args = JSON.parse(message.tool_calls[0].function.arguments);
+    return args.events ?? [];
+  }
+
+  // ---------- plain-text / code-fence branch ----------
+  const raw =
+    typeof message.content === "string"
+      ? message.content
+      : String(message.content);
+
+  /* 1. strip a leading   ```json   (or ``` plus optional “json”) and a
+        trailing ``` fence – they may or may not be there. */
+  const withoutFences = raw
+    .replace(/^\s*```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "");
+
+  /* 2. capture the first JSON object or array. */
+  const jsonMatch = withoutFences.match(/(\{|\[)[\s\S]*(\}|\])/m);
+
+  if (!jsonMatch) return [];
+
+  let jsonString = jsonMatch[0];
+
+  /* 3. repair illegal back-slash escapes.
+        keep \" \\ \/ \b \f \n \r \t \uXXXX intact,
+        double-escape every other  \X  →  \\X                     */
+  jsonString = jsonString.replace(/\\(?!["\\\/bfnrtu])/g, "\\\\");
+
+  console.log("Sanitised JSON string:", jsonString);
+
+  /* 4. parse safely */
+  let data;
+  try {
+    data = JSON.parse(jsonString);
+  } catch (e) {
+    console.error("JSON.parse failed even after sanitising:", e);
     return [];
   }
+
+  /* 5. normalise return value */
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.events)) return data.events;
+  if (Array.isArray(data.event)) return data.event;
+  return [];
 }
 
 class EventConverter extends LitElement {
@@ -1125,6 +1145,16 @@ ${event.notes || ""}</textarea
         ) {
           normalizedEvent.isFullDay = true;
         }
+      }
+
+      // normalize the newlines (\r \n) and if only a "\" is present we assume it's a line break wrong JSON escape
+      if (normalizedEvent.notes) {
+        normalizedEvent.notes = normalizedEvent.notes.replace(/\\/g, "\n");
+        normalizedEvent.notes = normalizedEvent.notes.replace(/[\r\n]+/g, "\n");
+      }
+      if (normalizedEvent.place) {
+        normalizedEvent.place = normalizedEvent.place.replace(/\\/g, "\n");
+        normalizedEvent.place = normalizedEvent.place.replace(/[\r\n]+/g, "\n");
       }
 
       return normalizedEvent;
