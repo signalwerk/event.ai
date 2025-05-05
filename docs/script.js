@@ -68,6 +68,13 @@ const CONNECTION_OPTIONS = [
   },
   {
     provider: "openrouter",
+    model: "deepseek/deepseek-chat-v3-0324:free",
+    label: "DeepSeek - DeepSeek Chat V3 (free)",
+    endpoint: ENDPOINTS.openrouter,
+    capabilities: [],
+  },
+  {
+    provider: "openrouter",
     model: "mistralai/mistral-7b-instruct:free",
     label: "OpenRouter - Mistral 7B Instruct (free) – tools",
     endpoint: ENDPOINTS.openrouter,
@@ -210,6 +217,11 @@ function extractEventsFromMessage(message, supportsTools) {
       const events = Array.isArray(eventsData) ? eventsData : eventsData.events;
       if (Array.isArray(events)) {
         return events;
+      }
+      // wrong naming but let's try to get the events from the event property
+      const event = Array.isArray(eventsData) ? eventsData : eventsData.event;
+      if (Array.isArray(event)) {
+        return event;
       }
     } catch (e) {
       console.error("Failed to parse JSON from model response:", e);
@@ -852,31 +864,7 @@ ${event.notes || ""}</textarea
           "Failed to extract event information. No events were found.";
       }
     } catch (error) {
-      console.error("Error:", error);
-      this.errorMessage = `API Error: ${error.message}`;
-
-      // Add more detailed error information if available
-      if (error.details) {
-        this.errorMessage += `\n\nDetails: ${JSON.stringify(
-          error.details,
-          null,
-          2,
-        )}`;
-      }
-
-      if (error.metadata?.raw) {
-        // try to parse the raw error message as JSON
-        try {
-          const rawError = JSON.parse(error.metadata.raw);
-          this.errorMessage += `\n\nRaw Error: ${JSON.stringify(
-            rawError,
-            null,
-            2,
-          )}`;
-        } catch (e) {
-          this.errorMessage += `\n\nRaw Error: ${error.metadata.raw}`;
-        }
-      }
+      this.handleError(error);
     } finally {
       this.processing = false;
       this.requestUpdate();
@@ -1020,11 +1008,7 @@ ${event.notes || ""}</textarea
 
     if (cachedData) {
       console.log("Using cached extract events response");
-      if (cachedData.error) {
-        // If we stored an error response in the cache
-        throw new Error(cachedData.error.message || "Unknown error");
-      }
-
+      this.checkCacheError(cachedData);
       const message = cachedData.choices[0].message;
       const events = extractEventsFromMessage(message, supportsTools);
       return this.normalizeEvents(events);
@@ -1408,6 +1392,48 @@ ${event.notes || ""}</textarea
       .replace(/;/g, "\\;")
       .replace(/,/g, "\\,")
       .replace(/\n/g, "\\n");
+  }
+
+  /**
+   * Centralize API error formatting and assignment to this.errorMessage
+   */
+  handleError(error) {
+    console.error("Error:", error);
+    let msg = `API Error: ${error.message}`;
+
+    if (error.details) {
+      msg += `\n\nDetails: ${JSON.stringify(error.details, null, 2)}`;
+    }
+
+    if (error.metadata?.raw) {
+      try {
+        const raw = JSON.parse(error.metadata.raw);
+        msg += `\n\nRaw Error: ${JSON.stringify(raw, null, 2)}`;
+      } catch {
+        msg += `\n\nRaw Error: ${error.metadata.raw}`;
+      }
+    }
+
+    this.errorMessage = msg;
+  }
+
+  /**
+   * Throw if the cached response contains an error payload
+   */
+  checkCacheError(cachedData) {
+    if (cachedData.error) {
+      // build an Error just like you do for live calls
+      const err = new Error(cachedData.error.message || "Unknown error");
+      // attach the structured details
+      if (cachedData.error.details) {
+        err.details = cachedData.error.details;
+      }
+      // if you previously cached a raw dump, re-attach it
+      if (cachedData.error.metadata?.raw) {
+        err.metadata = { raw: cachedData.error.metadata.raw };
+      }
+      throw err;
+    }
   }
 }
 
