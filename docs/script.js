@@ -141,7 +141,7 @@ const getCurrentTimestamp = () => {
 
 // Replace placeholder with actual timestamp
 const replacePlaceholders = (text) => {
-  return text.replace("{{$now}}", getCurrentTimestamp());
+  return text.replaceAll("{{$now}}", getCurrentTimestamp());
 };
 
 // Simple cache key function using SHA-256
