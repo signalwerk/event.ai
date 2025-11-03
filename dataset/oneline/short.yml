@@ -18,7 +18,7 @@ output:
     - end:
         must: [$tomorrow 13:00]
     - location:
-        ideal: ["/fountain/", "!/dani/", ]
+        ideal: ["/fountain/", "!/dani/"]
 
   variants:
     - id: morning

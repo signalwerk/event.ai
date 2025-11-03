@@ -1241,15 +1241,15 @@ ${event.notes || ""}</textarea
     }
 
     this.icsUrl = URL.createObjectURL(this.icsBlob);
-    
+
     // Automatically trigger download
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = this.icsUrl;
-    link.download = 'events.ics';
+    link.download = "events.ics";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     this.requestUpdate();
   }
 
