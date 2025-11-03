@@ -90,7 +90,7 @@ const CONNECTION_OPTIONS = [
 ];
 
 // Use a placeholder for the timestamp that will be replaced before making actual API calls
-const SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all the events found in the text. Don't change the language of the text. Today's date and time are {{$now}}.`;
+const SYSTEM_PROMPT = `You are an assistant that extracts detailed event information from unstructured text. The text may describe one or multiple events. Identify and extract all distinct events mentioned in the text and return them in a structured way. Don't change the language of the text. Parse relative dates (e.g., “next Tuesday”, “tomorrow”) relative to {{$now}}. If the text omits year or month, assume the current month/year based on today’s date and time: {{$now}}.`;
 
 const FIELD_DESCRIPTIONS = {
   title:
@@ -105,7 +105,7 @@ const FIELD_DESCRIPTIONS = {
 };
 
 // Alternative prompt for models without tool support
-const JSON_SYSTEM_PROMPT = `You are an assistant that extracts event information from text. The text may contain information about multiple events. Return all events found in the text as a valid JSON array without additional text or explanation. The structure of the JSON array must be:
+const JSON_SYSTEM_PROMPT = `${SYSTEM_PROMPT}. Return all events found in the text as a valid JSON array without additional text or explanation. The structure of the JSON array must be:
 {
   "events": [
     {
@@ -141,7 +141,7 @@ const getCurrentTimestamp = () => {
 
 // Replace placeholder with actual timestamp
 const replacePlaceholders = (text) => {
-  return text.replace("{{$now}}", getCurrentTimestamp());
+  return text.replaceAll("{{$now}}", getCurrentTimestamp());
 };
 
 // Simple cache key function using SHA-256
