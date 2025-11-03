@@ -580,16 +580,6 @@ class EventConverter extends LitElement {
 
       <!-- Preview Area -->
       <div class="preview">${this.renderPreview()}</div>
-
-      <!-- Download Link -->
-      ${this.icsUrl
-        ? html`<a
-            class="download-link"
-            href=${this.icsUrl}
-            download="events.ics"
-            >Download ICS File</a
-          >`
-        : ""}
     `;
   }
 
@@ -642,7 +632,7 @@ class EventConverter extends LitElement {
         </div>
 
         <button type="button" @click=${this.generateICSFile}>
-          Generate ICS File
+          Download ICS File
         </button>
       </form>
     `;
@@ -1251,6 +1241,15 @@ ${event.notes || ""}</textarea
     }
 
     this.icsUrl = URL.createObjectURL(this.icsBlob);
+    
+    // Automatically trigger download
+    const link = document.createElement('a');
+    link.href = this.icsUrl;
+    link.download = 'events.ics';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
     this.requestUpdate();
   }
 
