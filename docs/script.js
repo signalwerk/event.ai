@@ -18,20 +18,6 @@ const ENDPOINTS = {
 const CONNECTION_OPTIONS = [
   {
     provider: "openai",
-    model: "gpt-3.5-turbo",
-    label: "OpenAI - GPT-3.5 Turbo",
-    endpoint: ENDPOINTS.openai,
-    capabilities: ["tools"],
-  },
-  {
-    provider: "openai",
-    model: "gpt-4",
-    label: "OpenAI - GPT-4",
-    endpoint: ENDPOINTS.openai,
-    capabilities: ["tools"],
-  },
-  {
-    provider: "openai",
     model: "gpt-4o-mini",
     label: "OpenAI - GPT-4o Mini",
     endpoint: ENDPOINTS.openai,
@@ -39,8 +25,8 @@ const CONNECTION_OPTIONS = [
   },
   {
     provider: "openai",
-    model: "gpt-4o",
-    label: "OpenAI - GPT-4o",
+    model: "gpt-5-mini",
+    label: "OpenAI - GPT-5 Mini",
     endpoint: ENDPOINTS.openai,
     capabilities: ["tools"],
   },
